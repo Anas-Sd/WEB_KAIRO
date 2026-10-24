@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   ArrowLeft,
   Plus,
@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Layers,
   ChevronDown,
+  ChevronRight,
   CheckCircle2,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -35,6 +36,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { ListCard } from "@/components/ListCard";
 import { CreateEditListDialog } from "@/components/CreateEditListDialog";
 import { ListItemRow } from "@/components/ListItemTree";
+import { SortableListItemRow } from "@/components/SortableListItemRow";
 import { FloatingActionButton } from "@/components/FloatingActionButton";
 import { SelectionActionBar } from "@/components/SelectionActionBar";
 import { renderListIcon } from "@/components/ListIconPicker";
@@ -106,8 +108,14 @@ export default function ListsPage() {
   const [itemForAdjustParent, setItemForAdjustParent] = useState<ListItem | null>(null);
   const [itemToDelete, setItemToDelete] = useState<ListItem | null>(null);
 
-  // In-list search toggle
-  const [isItemSearchOpen, setIsItemSearchOpen] = useState(false);
+  // Breadcrumb navigation stack for infinite hierarchy drill-down
+  const [itemBreadcrumbs, setItemBreadcrumbs] = useState<ListItem[]>([]);
+  const currentParent = itemBreadcrumbs[itemBreadcrumbs.length - 1] || null;
+
+  // Clear breadcrumbs when switching or exiting lists
+  useEffect(() => {
+    setItemBreadcrumbs([]);
+  }, [selectedListId]);
 
   // DnD Sensors
   const sensors = useSensors(
@@ -144,54 +152,93 @@ export default function ListsPage() {
     return items.filter((i) => i.listId === selectedListId);
   }, [items, selectedListId]);
 
-  // Filtered items in detail view
-  const displayItems = useMemo(() => {
-    if (!itemSearchQuery.trim()) return currentListItems;
-    const q = itemSearchQuery.toLowerCase().trim();
-    return currentListItems.filter(
-      (i) => i.title.toLowerCase().includes(q) || (i.notes && i.notes.toLowerCase().includes(q))
-    );
-  }, [currentListItems, itemSearchQuery]);
-
-  // Tree separation: Root items vs Children
-  const { activeRootItems, completedItems, childrenMap } = useMemo(() => {
-    const children = new Map<string, ListItem[]>();
-    const activeRoots: ListItem[] = [];
-    const completed: ListItem[] = [];
-
-    for (const item of displayItems) {
-      if (item.parentId) {
-        if (!children.has(item.parentId)) children.set(item.parentId, []);
-        children.get(item.parentId)!.push(item);
+  // Keep breadcrumbs synchronized with item state updates
+  useEffect(() => {
+    if (itemBreadcrumbs.length > 0) {
+      const validMap = new Map(currentListItems.map((i) => [i.id, i]));
+      const nextBreadcrumbs: ListItem[] = [];
+      for (const crumb of itemBreadcrumbs) {
+        const fresh = validMap.get(crumb.id);
+        if (fresh) nextBreadcrumbs.push(fresh);
+        else break;
+      }
+      if (nextBreadcrumbs.length !== itemBreadcrumbs.length) {
+        setItemBreadcrumbs(nextBreadcrumbs);
       }
     }
+  }, [currentListItems, itemBreadcrumbs]);
 
-    for (const item of displayItems) {
-      if (!item.parentId) {
-        if (item.isCompleted) {
-          completed.push(item);
-        } else {
-          activeRoots.push(item);
-        }
+  // Subtask statistics map per parent
+  const subtaskStatsMap = useMemo(() => {
+    const map = new Map<string, { total: number; completed: number }>();
+    for (const it of currentListItems) {
+      if (it.parentId) {
+        const curr = map.get(it.parentId) || { total: 0, completed: 0 };
+        curr.total += 1;
+        if (it.isCompleted) curr.completed += 1;
+        map.set(it.parentId, curr);
       }
+    }
+    return map;
+  }, [currentListItems]);
+
+  // Scoped items for the current drill-down level
+  const { scopedActiveItems, scopedCompletedItems } = useMemo(() => {
+    const isSearching = itemSearchQuery.trim().length > 0;
+    const q = itemSearchQuery.toLowerCase().trim();
+
+    let base: ListItem[];
+    if (isSearching) {
+      base = currentListItems.filter(
+        (i) => i.title.toLowerCase().includes(q) || (i.notes && i.notes.toLowerCase().includes(q))
+      );
+    } else if (currentParent == null) {
+      base = currentListItems.filter((i) => !i.parentId);
+    } else {
+      base = currentListItems.filter((i) => i.parentId === currentParent.id);
+    }
+
+    const active = base.filter((i) => !i.isCompleted);
+    const completed = base.filter((i) => i.isCompleted);
+
+    // If not searching, float parents (items with subtasks) above leaf items
+    if (!isSearching) {
+      const parents = active.filter((i) => subtaskStatsMap.has(i.id));
+      const leaves = active.filter((i) => !subtaskStatsMap.has(i.id));
+      return {
+        scopedActiveItems: [
+          ...parents.sort((a, b) => a.position - b.position),
+          ...leaves.sort((a, b) => a.position - b.position),
+        ],
+        scopedCompletedItems: completed.sort(
+          (a, b) => (b.completedAt || 0) - (a.completedAt || 0)
+        ),
+      };
     }
 
     return {
-      activeRootItems: activeRoots.sort((a, b) => a.position - b.position),
-      completedItems: completed.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
-      childrenMap: children,
+      scopedActiveItems: active.sort((a, b) => a.position - b.position),
+      scopedCompletedItems: completed.sort(
+        (a, b) => (b.completedAt || 0) - (a.completedAt || 0)
+      ),
     };
-  }, [displayItems]);
+  }, [currentListItems, itemSearchQuery, currentParent, subtaskStatsMap]);
 
   const handleQuickAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickItemTitle.trim() || !selectedListId) return;
     const title = quickItemTitle.trim();
     setQuickItemTitle("");
-    await createItem(userCode, selectedListId, title);
+    await createItem(
+      userCode,
+      selectedListId,
+      title,
+      currentParent ? currentParent.id : null
+    );
   };
 
   const handleListDragEnd = async (event: DragEndEvent) => {
+    document.body.classList.remove("is-dragging");
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIdx = filteredLists.findIndex((l) => l.id === active.id);
@@ -199,6 +246,18 @@ export default function ListsPage() {
     if (oldIdx !== -1 && newIdx !== -1) {
       const reordered = arrayMove(filteredLists, oldIdx, newIdx);
       await reorderLists(userCode, reordered);
+    }
+  };
+
+  const handleItemDragEnd = async (event: DragEndEvent) => {
+    document.body.classList.remove("is-dragging");
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = scopedActiveItems.findIndex((i) => i.id === active.id);
+    const newIdx = scopedActiveItems.findIndex((i) => i.id === over.id);
+    if (oldIdx !== -1 && newIdx !== -1) {
+      const reordered = arrayMove(scopedActiveItems, oldIdx, newIdx);
+      await reorderItems(userCode, reordered);
     }
   };
 
@@ -313,7 +372,9 @@ export default function ListsPage() {
                   <DndContext
                     sensors={sensors}
                     collisionDetection={closestCenter}
+                    onDragStart={() => document.body.classList.add("is-dragging")}
                     onDragEnd={handleListDragEnd}
+                    onDragCancel={() => document.body.classList.remove("is-dragging")}
                   >
                     <SortableContext
                       items={filteredLists.map((l) => l.id)}
@@ -372,12 +433,17 @@ export default function ListsPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedListId(null);
-                        setIsItemSearchOpen(false);
-                        setItemSearchQuery("");
+                        if (itemSearchQuery) {
+                          setItemSearchQuery("");
+                        } else if (itemBreadcrumbs.length > 0) {
+                          setItemBreadcrumbs((prev) => prev.slice(0, -1));
+                        } else {
+                          setSelectedListId(null);
+                          setItemBreadcrumbs([]);
+                        }
                       }}
                       className="p-1.5 rounded-xl text-[#918EA2] hover:text-white hover:bg-[#161619] transition-colors"
-                      title="Back to lists"
+                      title={itemBreadcrumbs.length > 0 ? "Back one level" : "Back to lists"}
                     >
                       <ArrowLeft className="w-5 h-5" />
                     </button>
@@ -422,7 +488,7 @@ export default function ListsPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        setParentForSubtasks(null);
+                        setParentForSubtasks(currentParent);
                         setAddMultipleOpen(true);
                       }}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#111114] border border-[#1C1C20] text-[#C5C0FF] hover:bg-[#C5C0FF]/10 hover:border-[#C5C0FF]/40 transition-colors shrink-0"
@@ -480,6 +546,42 @@ export default function ListsPage() {
                     style={{ width: `${currentPercent}%` }}
                   />
                 </div>
+
+                {/* Breadcrumb Navigation Bar */}
+                <div className="flex items-center gap-1.5 pt-2.5 pb-1 overflow-x-auto no-scrollbar">
+                  <button
+                    type="button"
+                    onClick={() => setItemBreadcrumbs([])}
+                    className={`px-2.5 py-1 rounded-lg text-xs transition-colors flex items-center gap-1.5 shrink-0 ${
+                      itemBreadcrumbs.length === 0
+                        ? "bg-[#C5C0FF]/15 text-[#C5C0FF] font-bold"
+                        : "text-[#918EA2] hover:text-white hover:bg-[#161619]"
+                    }`}
+                  >
+                    <span>{currentList?.name}</span>
+                  </button>
+
+                  {itemBreadcrumbs.map((crumb, idx) => {
+                    const isLast = idx === itemBreadcrumbs.length - 1;
+                    return (
+                      <React.Fragment key={crumb.id}>
+                        <ChevronRight className="w-3.5 h-3.5 text-[#474556] shrink-0" />
+                        <button
+                          type="button"
+                          onClick={() => setItemBreadcrumbs(itemBreadcrumbs.slice(0, idx + 1))}
+                          className={`px-2.5 py-1 rounded-lg text-xs transition-colors truncate max-w-[160px] shrink-0 ${
+                            isLast
+                              ? "bg-[#C5C0FF]/15 text-[#C5C0FF] font-bold"
+                              : "text-[#918EA2] hover:text-white hover:bg-[#161619]"
+                          }`}
+                          title={crumb.title}
+                        >
+                          {crumb.title}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Inline Quick Add Item */}
@@ -489,7 +591,11 @@ export default function ListsPage() {
                     type="text"
                     value={quickItemTitle}
                     onChange={(e) => setQuickItemTitle(e.target.value)}
-                    placeholder="Add item... (Press Enter to save)"
+                    placeholder={
+                      currentParent
+                        ? `Add subtask under "${currentParent.title}"...`
+                        : "Add item... (Press Enter to save)"
+                    }
                     className="flex-1 bg-[#161619] border border-[#474556]/40 focus:border-[#C5C0FF] rounded-xl px-3.5 py-2.5 text-sm text-[#E3E1EC] placeholder-[#918EA2] focus:outline-none transition-colors"
                   />
                   <button
@@ -503,40 +609,64 @@ export default function ListsPage() {
                 </div>
               </form>
 
-              {/* Items Tree */}
-              <div className="space-y-2 pb-24">
-                {activeRootItems.length === 0 && completedItems.length === 0 ? (
+              {/* Items List */}
+              <div className="space-y-3 pb-24">
+                {scopedActiveItems.length === 0 && scopedCompletedItems.length === 0 ? (
                   <div className="text-center py-12 text-xs text-[#918EA2] italic">
-                    No items in this list yet. Type above to add your first item!
+                    {itemSearchQuery.trim()
+                      ? `No items matching "${itemSearchQuery}"`
+                      : currentParent
+                      ? `No subtasks under "${currentParent.title}". Type above to add one!`
+                      : "No items in this list yet. Type above to add your first item!"}
                   </div>
                 ) : (
                   <>
-                    {/* Active items */}
-                    <div className="space-y-1.5">
-                      {activeRootItems.map((item) => (
-                        <ListItemRow
-                          key={item.id}
-                          item={item}
-                          childItems={childrenMap.get(item.id) || []}
-                          depth={0}
-                          isSelectionMode={isSelectionMode}
-                          isSelected={selectedItemIds.has(item.id)}
-                          onToggleSelect={() => toggleSelectItem(item.id)}
-                          onToggleCompletion={() => toggleItemCompletion(userCode, item.id)}
-                          onShowDetails={setItemForDetails}
-                          onEditItem={setItemToEdit}
-                          onAddSubtasks={(parent) => {
-                            setParentForSubtasks(parent);
-                            setAddMultipleOpen(true);
-                          }}
-                          onAdjustParent={setItemForAdjustParent}
-                          onDeleteItem={setItemToDelete}
-                        />
-                      ))}
-                    </div>
+                    {/* Active items with Drag & Drop */}
+                    {scopedActiveItems.length > 0 && (
+                      <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragStart={() => document.body.classList.add("is-dragging")}
+                        onDragEnd={handleItemDragEnd}
+                        onDragCancel={() => document.body.classList.remove("is-dragging")}
+                      >
+                        <SortableContext
+                          items={scopedActiveItems.map((i) => i.id)}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          <div className="space-y-2">
+                            {scopedActiveItems.map((item) => (
+                              <SortableListItemRow
+                                key={item.id}
+                                item={item}
+                                subtaskStats={subtaskStatsMap.get(item.id)}
+                                parentTitle={
+                                  item.parentId
+                                    ? currentListItems.find((p) => p.id === item.parentId)?.title
+                                    : null
+                                }
+                                isSelectionMode={isSelectionMode}
+                                isSelected={selectedItemIds.has(item.id)}
+                                onToggleSelect={() => toggleSelectItem(item.id)}
+                                onToggleCompletion={(itemId) => toggleItemCompletion(userCode, itemId)}
+                                onDrillDown={(it) => setItemBreadcrumbs((prev) => [...prev, it])}
+                                onShowDetails={setItemForDetails}
+                                onEditItem={setItemToEdit}
+                                onAddSubtasks={(parent) => {
+                                  setParentForSubtasks(parent);
+                                  setAddMultipleOpen(true);
+                                }}
+                                onAdjustParent={setItemForAdjustParent}
+                                onDeleteItem={setItemToDelete}
+                              />
+                            ))}
+                          </div>
+                        </SortableContext>
+                      </DndContext>
+                    )}
 
                     {/* Completed Items Accordion */}
-                    {completedItems.length > 0 && (
+                    {scopedCompletedItems.length > 0 && (
                       <div className="mt-6 pt-3 border-t border-[#1C1C20]">
                         <button
                           type="button"
@@ -545,7 +675,7 @@ export default function ListsPage() {
                         >
                           <div className="flex items-center gap-2">
                             <CheckCircle2 className="w-4 h-4 text-[#68DBA9]" />
-                            <span>Completed ({completedItems.length})</span>
+                            <span>Completed ({scopedCompletedItems.length})</span>
                           </div>
                           <ChevronDown
                             className={`w-4 h-4 transition-transform duration-200 ${
@@ -555,17 +685,22 @@ export default function ListsPage() {
                         </button>
 
                         {completedSectionExpanded && (
-                          <div className="space-y-1.5 mt-2">
-                            {completedItems.map((item) => (
+                          <div className="space-y-2 mt-2">
+                            {scopedCompletedItems.map((item) => (
                               <ListItemRow
                                 key={item.id}
                                 item={item}
-                                childItems={childrenMap.get(item.id) || []}
-                                depth={0}
+                                subtaskStats={subtaskStatsMap.get(item.id)}
+                                parentTitle={
+                                  item.parentId
+                                    ? currentListItems.find((p) => p.id === item.parentId)?.title
+                                    : null
+                                }
                                 isSelectionMode={isSelectionMode}
                                 isSelected={selectedItemIds.has(item.id)}
                                 onToggleSelect={() => toggleSelectItem(item.id)}
-                                onToggleCompletion={() => toggleItemCompletion(userCode, item.id)}
+                                onToggleCompletion={(itemId) => toggleItemCompletion(userCode, itemId)}
+                                onDrillDown={(it) => setItemBreadcrumbs((prev) => [...prev, it])}
                                 onShowDetails={setItemForDetails}
                                 onEditItem={setItemToEdit}
                                 onAddSubtasks={(parent) => {
@@ -675,7 +810,7 @@ export default function ListsPage() {
             open={!!itemToDelete}
             onOpenChange={(open) => !open && setItemToDelete(null)}
             item={itemToDelete}
-            hasChildren={itemToDelete ? childrenMap.has(itemToDelete.id) : false}
+            hasChildren={itemToDelete ? (subtaskStatsMap.get(itemToDelete.id)?.total ?? 0) > 0 : false}
             onConfirm={async (cascade) => {
               if (itemToDelete) {
                 await deleteItem(userCode, itemToDelete.id, cascade);

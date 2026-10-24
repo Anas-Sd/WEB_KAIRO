@@ -161,6 +161,7 @@ export default function HabitsPage() {
   );
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    document.body.classList.remove("is-dragging");
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIdx = displayHabits.findIndex((h) => h.id === active.id);
@@ -322,7 +323,9 @@ export default function HabitsPage() {
                   <DndContext
                     sensors={sensors}
                     collisionDetection={closestCenter}
+                    onDragStart={() => document.body.classList.add("is-dragging")}
                     onDragEnd={handleDragEnd}
+                    onDragCancel={() => document.body.classList.remove("is-dragging")}
                   >
                     <SortableContext
                       items={displayHabits.map((h) => h.id)}

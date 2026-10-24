@@ -439,76 +439,94 @@ export const useListStore = create<ListStoreState>((set, get) => ({
 
     const now = Date.now();
     const newIsCompleted = !target.isCompleted;
-    const byId = new Map(all.map((i) => [i.id, { ...i }]));
+    const listId = target.listId;
+    const itemsInList = all.filter((i) => i.listId === listId);
+    const byId = new Map(itemsInList.map((i) => [i.id, { ...i }]));
+    const affectedIds = new Set<string>();
 
     if (newIsCompleted) {
-      // Complete target and descendants
+      // 1. Target and ALL recursive descendants become COMPLETED
       const toComplete = new Set<string>([itemId]);
-      for (const d of getItemDescendantIds(itemId, all)) {
+      for (const d of getItemDescendantIds(itemId, itemsInList)) {
         toComplete.add(d);
       }
+
       for (const id of toComplete) {
-        const item = byId.get(id);
-        if (item) {
-          item.isCompleted = true;
-          item.completedAt = now;
-          item.updatedAt = now;
+        const itm = byId.get(id);
+        if (itm) {
+          itm.isCompleted = true;
+          itm.completedAt = now;
+          itm.updatedAt = now;
         }
       }
 
-      // Complete parent if all siblings completed
-      let currParentId = target.parentId;
+      // 2. Cascade upward: A parent becomes completed if ALL its direct children are completed
+      let currentParentId = target.parentId;
       const visited = new Set<string>();
-      while (currParentId && !visited.has(currParentId)) {
-        visited.add(currParentId);
-        const parent = byId.get(currParentId);
-        if (!parent) break;
-        const siblings = Array.from(byId.values()).filter(
-          (i) => i.parentId === currParentId && i.listId === target.listId
-        );
-        const allDone = siblings.every((s) => s.isCompleted);
-        if (allDone) {
-          parent.isCompleted = true;
-          parent.completedAt = now;
-          parent.updatedAt = now;
-          currParentId = parent.parentId;
+      while (currentParentId && visited.add(currentParentId)) {
+        const parentItem = byId.get(currentParentId);
+        if (!parentItem) break;
+        const siblings = Array.from(byId.values()).filter((i) => i.parentId === currentParentId);
+        const allSiblingsDone =
+          siblings.length > 0 &&
+          siblings.every((s) => s.isCompleted || toComplete.has(s.id));
+        if (allSiblingsDone) {
+          toComplete.add(currentParentId);
+          parentItem.isCompleted = true;
+          parentItem.completedAt = now;
+          parentItem.updatedAt = now;
+          currentParentId = parentItem.parentId;
         } else {
           break;
         }
       }
-    } else {
-      // Uncomplete target and ancestors
-      target.isCompleted = false;
-      target.completedAt = null;
-      target.updatedAt = now;
-      byId.set(target.id, target);
 
+      for (const id of toComplete) affectedIds.add(id);
+    } else {
+      // UNTICKING (Reopening)
+      const toReopen = new Set<string>([itemId]);
+
+      // Rule 1: Unticking a parent -> all its recursive descendants become not done
+      for (const d of getItemDescendantIds(itemId, itemsInList)) {
+        toReopen.add(d);
+      }
+
+      // Rule 2: Unticking a subtask -> parent & all done ancestors become not done
       let curr = target.parentId;
-      while (curr) {
+      const visited = new Set<string>();
+      while (curr && visited.add(curr)) {
+        toReopen.add(curr);
         const p = byId.get(curr);
-        if (p) {
-          p.isCompleted = false;
-          p.completedAt = null;
-          p.updatedAt = now;
-          curr = p.parentId;
-        } else {
-          break;
+        curr = p?.parentId || null;
+      }
+
+      for (const id of toReopen) {
+        const itm = byId.get(id);
+        if (itm) {
+          itm.isCompleted = false;
+          itm.completedAt = null;
+          itm.updatedAt = now;
         }
       }
+
+      for (const id of toReopen) affectedIds.add(id);
     }
 
-    const updated = Array.from(byId.values());
+    const updated = all.map((item) => byId.get(item.id) || item);
     set({ items: updated });
 
-    const changed = updated.filter((item) => {
-      const orig = all.find((o) => o.id === item.id);
-      return !orig || orig.isCompleted !== item.isCompleted;
-    });
+    const changedItems = Array.from(affectedIds)
+      .map((id) => byId.get(id))
+      .filter(Boolean) as ListItem[];
 
-    for (const c of changed) {
+    for (const c of changedItems) {
       await supabase
         .from("list_items")
-        .update({ is_completed: c.isCompleted, completed_at: c.completedAt, updated_at: now })
+        .update({
+          is_completed: c.isCompleted,
+          completed_at: c.completedAt,
+          updated_at: c.updatedAt,
+        })
         .eq("id", c.id);
     }
   },
@@ -539,11 +557,16 @@ export const useListStore = create<ListStoreState>((set, get) => ({
         }),
     }));
 
-    for (const id of toDeleteIds) {
-      await supabase.from("list_items").delete().eq("id", id);
+    const { error: delErr } = await supabase.from("list_items").delete().in("id", toDeleteIds);
+    if (delErr) {
+      console.error("Failed to delete list_items in Supabase:", delErr);
     }
+
     for (const o of toOrphan) {
-      await supabase.from("list_items").update({ parent_id: o.parentId }).eq("id", o.id);
+      await supabase
+        .from("list_items")
+        .update({ parent_id: o.parentId, updated_at: o.updatedAt })
+        .eq("id", o.id);
     }
   },
 
@@ -559,14 +582,16 @@ export const useListStore = create<ListStoreState>((set, get) => ({
       }
     }
 
+    const deleteIds = Array.from(deleteSet);
     set((state) => ({
       items: state.items.filter((i) => !deleteSet.has(i.id)),
       selectedItemIds: new Set(),
       isSelectionMode: false,
     }));
 
-    for (const id of Array.from(deleteSet)) {
-      await supabase.from("list_items").delete().eq("id", id);
+    const { error: delErr } = await supabase.from("list_items").delete().in("id", deleteIds);
+    if (delErr) {
+      console.error("Failed to batch delete list_items in Supabase:", delErr);
     }
   },
 
@@ -583,21 +608,54 @@ export const useListStore = create<ListStoreState>((set, get) => ({
       }
     }
 
-    set((state) => ({
-      items: state.items.map((i) =>
-        completeSet.has(i.id)
-          ? { ...i, isCompleted: true, completedAt: now, updatedAt: now }
-          : i
-      ),
+    const byId = new Map(all.map((i) => [i.id, { ...i }]));
+    for (const id of completeSet) {
+      const itm = byId.get(id);
+      if (itm) {
+        itm.isCompleted = true;
+        itm.completedAt = now;
+        itm.updatedAt = now;
+      }
+    }
+
+    // Cascade upward for any parent whose direct children are all done
+    for (const id of itemIds) {
+      let currentParentId = byId.get(id)?.parentId;
+      const visited = new Set<string>();
+      while (currentParentId && visited.add(currentParentId)) {
+        const parentItem = byId.get(currentParentId);
+        if (!parentItem) break;
+        const siblings = Array.from(byId.values()).filter((i) => i.parentId === currentParentId);
+        const allSiblingsDone =
+          siblings.length > 0 &&
+          siblings.every((s) => s.isCompleted || completeSet.has(s.id));
+        if (allSiblingsDone) {
+          completeSet.add(currentParentId);
+          parentItem.isCompleted = true;
+          parentItem.completedAt = now;
+          parentItem.updatedAt = now;
+          currentParentId = parentItem.parentId;
+        } else {
+          break;
+        }
+      }
+    }
+
+    set({
+      items: all.map((i) => byId.get(i.id) || i),
       selectedItemIds: new Set(),
       isSelectionMode: false,
-    }));
+    });
 
-    for (const id of Array.from(completeSet)) {
+    const changed = Array.from(completeSet)
+      .map((id) => byId.get(id))
+      .filter(Boolean) as ListItem[];
+
+    for (const c of changed) {
       await supabase
         .from("list_items")
         .update({ is_completed: true, completed_at: now, updated_at: now })
-        .eq("id", id);
+        .eq("id", c.id);
     }
   },
 

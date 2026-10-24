@@ -273,6 +273,7 @@ export default function TasksPage() {
 
   // Handle Drag End
   const handleDragEnd = async (event: DragEndEvent, sectionKey: TaskSection) => {
+    document.body.classList.remove("is-dragging");
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -382,7 +383,9 @@ export default function TasksPage() {
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
+                      onDragStart={() => document.body.classList.add("is-dragging")}
                       onDragEnd={(e) => handleDragEnd(e, "SNOOZED")}
+                      onDragCancel={() => document.body.classList.remove("is-dragging")}
                     >
                       <SortableContext
                         items={sectionsData.SNOOZED.map((t) => t.id)}
@@ -440,7 +443,9 @@ export default function TasksPage() {
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
+                      onDragStart={() => document.body.classList.add("is-dragging")}
                       onDragEnd={(e) => handleDragEnd(e, "OVERDUE")}
+                      onDragCancel={() => document.body.classList.remove("is-dragging")}
                     >
                       <SortableContext
                         items={sectionsData.OVERDUE.map((t) => t.id)}
@@ -502,7 +507,9 @@ export default function TasksPage() {
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
+                      onDragStart={() => document.body.classList.add("is-dragging")}
                       onDragEnd={(e) => handleDragEnd(e, "TODAY")}
+                      onDragCancel={() => document.body.classList.remove("is-dragging")}
                     >
                       <SortableContext
                         items={sectionsData.TODAY.map((t) => t.id)}
@@ -569,7 +576,9 @@ export default function TasksPage() {
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
+                      onDragStart={() => document.body.classList.add("is-dragging")}
                       onDragEnd={(e) => handleDragEnd(e, "TOMORROW")}
+                      onDragCancel={() => document.body.classList.remove("is-dragging")}
                     >
                       <SortableContext
                         items={sectionsData.TOMORROW.map((t) => t.id)}
@@ -636,7 +645,9 @@ export default function TasksPage() {
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
+                      onDragStart={() => document.body.classList.add("is-dragging")}
                       onDragEnd={(e) => handleDragEnd(e, "UPCOMING")}
+                      onDragCancel={() => document.body.classList.remove("is-dragging")}
                     >
                       <SortableContext
                         items={sectionsData.UPCOMING.map((t) => t.id)}

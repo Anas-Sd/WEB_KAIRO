@@ -90,3 +90,21 @@ input[type="time"],
 textarea {
   cursor: text !important;
 }
+
+/* Drag & Drop grab / grabbing cursors (overrides pointer !important) */
+.cursor-grab,
+[data-drag-handle],
+.drag-handle {
+  cursor: grab !important;
+}
+
+.cursor-grabbing,
+.cursor-grab:active,
+[data-drag-handle]:active,
+.drag-handle:active,
+body.is-dragging,
+body.is-dragging *,
+body.is-dragging button,
+body.is-dragging div {
+  cursor: grabbing !important;
+}
