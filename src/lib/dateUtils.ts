@@ -25,10 +25,20 @@ export function parseDueDateMillis(
   now.setHours(12, 0, 0, 0);
 
   const lower = raw.toLowerCase();
-  if (lower.includes("today")) return now.getTime();
-  if (lower.includes("tomorrow")) return addDays(now, 1).getTime();
-  if (lower.includes("yesterday")) return addDays(now, -1).getTime();
+  if (lower === "today" || lower.startsWith("today")) return now.getTime();
+  if (lower === "tomorrow" || lower.startsWith("tomorrow")) return addDays(now, 1).getTime();
+  if (lower === "yesterday" || lower.startsWith("yesterday")) return addDays(now, -1).getTime();
   if (lower.includes("day after tomorrow")) return addDays(now, 2).getTime();
+
+  // Try direct Date.parse first (handles ISO strings and standard date formats)
+  const direct = Date.parse(raw);
+  if (!isNaN(direct)) {
+    const d = new Date(direct);
+    if (d.getFullYear() > 1970) {
+      d.setHours(12, 0, 0, 0);
+      return d.getTime();
+    }
+  }
 
   const daysOfWeek: Record<string, number> = {
     sunday: 0,
@@ -54,9 +64,13 @@ export function parseDueDateMillis(
     "MMM dd",
     "yyyy-MM-dd",
     "dd/MM/yyyy",
+    "MM/dd/yyyy",
     "MMM dd, yyyy",
+    "MMM d, yyyy",
     "dd MMM yyyy",
+    "d MMM yyyy",
     "EEE, MMM d",
+    "EEEE, MMM d",
     "d MMM",
     "yyyy-M-d",
   ];
@@ -77,6 +91,46 @@ export function parseDueDateMillis(
   }
 
   return fallback;
+}
+
+/**
+ * Returns accurate epoch milliseconds combining task's due date AND due time for sorting.
+ * If task has an explicit due time (e.g. 09:30, 14:00), that exact time is applied.
+ * Untimed tasks default to end-of-day (23:59:59) so timed tasks on the same date appear first in ASC.
+ */
+export function getTaskSortDueMillis(task: Task): number {
+  let dayMillis: number;
+  if (task.dueDateMillis && !isNaN(task.dueDateMillis) && task.dueDateMillis > 0) {
+    dayMillis = task.dueDateMillis;
+  } else {
+    dayMillis = parseDueDateMillis(task.dueDate, task.createdAt || Date.now());
+  }
+
+  const d = new Date(dayMillis);
+  if (isNaN(d.getTime())) {
+    return task.createdAt || Date.now();
+  }
+
+  d.setHours(0, 0, 0, 0);
+
+  if (task.dueTime && task.dueTime.trim()) {
+    const rawTime = task.dueTime.trim();
+    const match = rawTime.match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+    if (match) {
+      let hours = parseInt(match[1], 10);
+      const minutes = parseInt(match[2], 10);
+      const meridiem = match[3]?.toUpperCase();
+
+      if (meridiem === "PM" && hours < 12) hours += 12;
+      else if (meridiem === "AM" && hours === 12) hours = 0;
+
+      d.setHours(hours, minutes, 0, 0);
+      return d.getTime();
+    }
+  }
+
+  d.setHours(23, 59, 59, 0);
+  return d.getTime();
 }
 
 export function formatDisplayDate(

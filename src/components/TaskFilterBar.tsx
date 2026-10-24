@@ -59,6 +59,7 @@ export function TaskFilterBar({
     !!filter.endDate;
 
   const sortShortLabels: Record<SortOption, string> = {
+    NONE: "None",
     DUE_DATE_ASC: "Earliest First",
     DUE_DATE_DESC: "Latest First",
     PRIORITY_DESC: "Highest Priority",

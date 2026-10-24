@@ -16,7 +16,7 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
-import { CheckSquare, RefreshCw, Download, Plus } from "lucide-react";
+import { CheckSquare, RefreshCw, Download, Plus, Search } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { AppHeader } from "@/components/AppHeader";
 import { TaskFilterBar } from "@/components/TaskFilterBar";
@@ -40,6 +40,7 @@ import {
   isTaskOverdue,
   getNextUpcomingAlarm,
   parseDueDateMillis,
+  getTaskSortDueMillis,
 } from "@/lib/dateUtils";
 
 export default function TasksPage() {
@@ -165,20 +166,30 @@ export default function TasksPage() {
 
     return (a: Task, b: Task) => {
       switch (sort) {
+        case "NONE":
+          return a.position - b.position || a.createdAt - b.createdAt;
         case "DUE_DATE_ASC": {
-          const aMs = a.dueDateMillis || parseDueDateMillis(a.dueDate);
-          const bMs = b.dueDateMillis || parseDueDateMillis(b.dueDate);
-          return aMs - bMs;
+          const aMs = getTaskSortDueMillis(a);
+          const bMs = getTaskSortDueMillis(b);
+          if (aMs !== bMs) return aMs - bMs;
+          return a.position - b.position || a.createdAt - b.createdAt;
         }
         case "DUE_DATE_DESC": {
-          const aMs = a.dueDateMillis || parseDueDateMillis(a.dueDate);
-          const bMs = b.dueDateMillis || parseDueDateMillis(b.dueDate);
-          return bMs - aMs;
+          const aMs = getTaskSortDueMillis(a);
+          const bMs = getTaskSortDueMillis(b);
+          if (aMs !== bMs) return bMs - aMs;
+          return a.position - b.position || a.createdAt - b.createdAt;
         }
-        case "PRIORITY_DESC":
-          return priorityWeight[b.priority] - priorityWeight[a.priority];
-        case "PRIORITY_ASC":
-          return priorityWeight[a.priority] - priorityWeight[b.priority];
+        case "PRIORITY_DESC": {
+          const diff = priorityWeight[b.priority] - priorityWeight[a.priority];
+          if (diff !== 0) return diff;
+          return a.position - b.position || a.createdAt - b.createdAt;
+        }
+        case "PRIORITY_ASC": {
+          const diff = priorityWeight[a.priority] - priorityWeight[b.priority];
+          if (diff !== 0) return diff;
+          return a.position - b.position || a.createdAt - b.createdAt;
+        }
         case "ALPHA_ASC":
           return a.title.localeCompare(b.title);
         case "ALPHA_DESC":
@@ -225,14 +236,14 @@ export default function TasksPage() {
     }
 
     return {
-      SNOOZED: snoozed.sort((a, b) => b.updatedAt - a.updatedAt),
+      SNOOZED: sort === "NONE" ? snoozed.sort((a, b) => b.updatedAt - a.updatedAt) : snoozed.sort(sortComparator),
       OVERDUE: overdue.sort(sortComparator),
       TODAY: today.sort(sortComparator),
       TOMORROW: tomorrow.sort(sortComparator),
       UPCOMING: upcoming.sort(sortComparator),
-      COMPLETED: completed.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
+      COMPLETED: sort === "NONE" ? completed.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)) : completed.sort(sortComparator),
     };
-  }, [filteredTasks, sortComparator]);
+  }, [filteredTasks, sortComparator, sort]);
 
   // Subtask progress map
   const subtaskProgressMap = useMemo(() => {
@@ -281,6 +292,26 @@ export default function TasksPage() {
   };
 
   const selectedCount = selectedTaskIds.size;
+
+  const isSearching = searchQuery.trim().length > 0;
+  const totalMatches =
+    sectionsData.SNOOZED.length +
+    sectionsData.OVERDUE.length +
+    sectionsData.TODAY.length +
+    sectionsData.TOMORROW.length +
+    sectionsData.UPCOMING.length +
+    sectionsData.COMPLETED.length;
+
+  const shouldShowSection = (section: TaskSection, count: number) => {
+    if (isSearching) return count > 0;
+    if (section === "SNOOZED" || section === "OVERDUE") return count > 0;
+    return true;
+  };
+
+  const isSectionExpanded = (section: TaskSection) => {
+    if (isSearching) return true;
+    return expandedSection === section;
+  };
 
   return (
     <AppShell>
@@ -333,13 +364,13 @@ export default function TasksPage() {
             {/* Sections Accordion */}
             <div className="space-y-3 pb-24">
               {/* 1. SNOOZED SECTION */}
-              {sectionsData.SNOOZED.length > 0 && (
+              {shouldShowSection("SNOOZED", sectionsData.SNOOZED.length) && (
                 <div className="space-y-2">
                   <TaskSectionHeader
                     section="SNOOZED"
                     title="Snoozed Alarms"
                     count={sectionsData.SNOOZED.length}
-                    isExpanded={expandedSection === "SNOOZED"}
+                    isExpanded={isSectionExpanded("SNOOZED")}
                     onToggle={() => toggleSection("SNOOZED")}
                     isSelectionMode={isSelectionMode}
                     isAllSelected={sectionsData.SNOOZED.every((t) => selectedTaskIds.has(t.id))}
@@ -347,7 +378,7 @@ export default function TasksPage() {
                       selectAllSection(sectionsData.SNOOZED.map((t) => t.id))
                     }
                   />
-                  {expandedSection === "SNOOZED" && (
+                  {isSectionExpanded("SNOOZED") && (
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
@@ -391,13 +422,13 @@ export default function TasksPage() {
               )}
 
               {/* 2. OVERDUE SECTION */}
-              {sectionsData.OVERDUE.length > 0 && (
+              {shouldShowSection("OVERDUE", sectionsData.OVERDUE.length) && (
                 <div className="space-y-2">
                   <TaskSectionHeader
                     section="OVERDUE"
                     title="Overdue"
                     count={sectionsData.OVERDUE.length}
-                    isExpanded={expandedSection === "OVERDUE"}
+                    isExpanded={isSectionExpanded("OVERDUE")}
                     onToggle={() => toggleSection("OVERDUE")}
                     isSelectionMode={isSelectionMode}
                     isAllSelected={sectionsData.OVERDUE.every((t) => selectedTaskIds.has(t.id))}
@@ -405,7 +436,7 @@ export default function TasksPage() {
                       selectAllSection(sectionsData.OVERDUE.map((t) => t.id))
                     }
                   />
-                  {expandedSection === "OVERDUE" && (
+                  {isSectionExpanded("OVERDUE") && (
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
@@ -450,253 +481,272 @@ export default function TasksPage() {
               )}
 
               {/* 3. TODAY SECTION */}
-              <div className="space-y-2">
-                <TaskSectionHeader
-                  section="TODAY"
-                  title="Today"
-                  count={sectionsData.TODAY.length}
-                  isExpanded={expandedSection === "TODAY"}
-                  onToggle={() => toggleSection("TODAY")}
-                  isSelectionMode={isSelectionMode}
-                  isAllSelected={
-                    sectionsData.TODAY.length > 0 &&
-                    sectionsData.TODAY.every((t) => selectedTaskIds.has(t.id))
-                  }
-                  onToggleSelectAll={() =>
-                    selectAllSection(sectionsData.TODAY.map((t) => t.id))
-                  }
-                />
-                {expandedSection === "TODAY" && (
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={(e) => handleDragEnd(e, "TODAY")}
-                  >
-                    <SortableContext
-                      items={sectionsData.TODAY.map((t) => t.id)}
-                      strategy={verticalListSortingStrategy}
+              {shouldShowSection("TODAY", sectionsData.TODAY.length) && (
+                <div className="space-y-2">
+                  <TaskSectionHeader
+                    section="TODAY"
+                    title="Today"
+                    count={sectionsData.TODAY.length}
+                    isExpanded={isSectionExpanded("TODAY")}
+                    onToggle={() => toggleSection("TODAY")}
+                    isSelectionMode={isSelectionMode}
+                    isAllSelected={
+                      sectionsData.TODAY.length > 0 &&
+                      sectionsData.TODAY.every((t) => selectedTaskIds.has(t.id))
+                    }
+                    onToggleSelectAll={() =>
+                      selectAllSection(sectionsData.TODAY.map((t) => t.id))
+                    }
+                  />
+                  {isSectionExpanded("TODAY") && (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={(e) => handleDragEnd(e, "TODAY")}
                     >
-                      <div className="space-y-2">
-                        {sectionsData.TODAY.length === 0 ? (
-                          <div className="text-center py-6 text-xs text-[#918EA2] italic">
-                            No tasks scheduled for today. Enjoy your day or tap + to plan ahead!
-                          </div>
-                        ) : (
-                          sectionsData.TODAY.map((task) => (
-                            <SortableTaskCard
-                              key={task.id}
-                              task={task}
-                              hasSubtasks={subtaskProgressMap.has(task.id)}
-                              subtaskProgress={subtaskProgressMap.get(task.id)}
-                              parentTitle={task.parentId ? tasksById.get(task.parentId)?.title : null}
-                              isSelectionMode={isSelectionMode}
-                              isSelected={selectedTaskIds.has(task.id)}
-                              onToggleSelect={() => toggleSelectTask(task.id)}
-                              onToggleCompletion={() => toggleTaskCompletion(userCode, task.id)}
-                              onDrillDown={() => setBreadcrumb(task.id)}
-                              onNavigateToParent={() => task.parentId && setBreadcrumb(task.parentId)}
-                              onShowDetails={() => setSelectedTaskForDetails(task)}
-                              onEditTask={() => setTaskToEdit(task)}
-                              onAddSubtask={() => handleOpenAddSubtask(task)}
-                              onAdjustParent={() => setTaskForParentAdjust(task)}
-                              onDeleteTask={() => setTaskToDelete(task)}
-                              onReactivateForToday={
-                                task.repeatType
-                                  ? () => reactivateForToday(userCode, task.id)
-                                  : undefined
-                              }
-                            />
-                          ))
-                        )}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
-                )}
-              </div>
+                      <SortableContext
+                        items={sectionsData.TODAY.map((t) => t.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-2">
+                          {sectionsData.TODAY.length === 0 ? (
+                            <div className="text-center py-6 text-xs text-[#918EA2] italic">
+                              No tasks scheduled for today. Enjoy your day or tap + to plan ahead!
+                            </div>
+                          ) : (
+                            sectionsData.TODAY.map((task) => (
+                              <SortableTaskCard
+                                key={task.id}
+                                task={task}
+                                hasSubtasks={subtaskProgressMap.has(task.id)}
+                                subtaskProgress={subtaskProgressMap.get(task.id)}
+                                parentTitle={task.parentId ? tasksById.get(task.parentId)?.title : null}
+                                isSelectionMode={isSelectionMode}
+                                isSelected={selectedTaskIds.has(task.id)}
+                                onToggleSelect={() => toggleSelectTask(task.id)}
+                                onToggleCompletion={() => toggleTaskCompletion(userCode, task.id)}
+                                onDrillDown={() => setBreadcrumb(task.id)}
+                                onNavigateToParent={() => task.parentId && setBreadcrumb(task.parentId)}
+                                onShowDetails={() => setSelectedTaskForDetails(task)}
+                                onEditTask={() => setTaskToEdit(task)}
+                                onAddSubtask={() => handleOpenAddSubtask(task)}
+                                onAdjustParent={() => setTaskForParentAdjust(task)}
+                                onDeleteTask={() => setTaskToDelete(task)}
+                                onReactivateForToday={
+                                  task.repeatType
+                                    ? () => reactivateForToday(userCode, task.id)
+                                    : undefined
+                                }
+                              />
+                            ))
+                          )}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                  )}
+                </div>
+              )}
 
               {/* 4. TOMORROW SECTION */}
-              <div className="space-y-2">
-                <TaskSectionHeader
-                  section="TOMORROW"
-                  title="Tomorrow"
-                  count={sectionsData.TOMORROW.length}
-                  isExpanded={expandedSection === "TOMORROW"}
-                  onToggle={() => toggleSection("TOMORROW")}
-                  isSelectionMode={isSelectionMode}
-                  isAllSelected={
-                    sectionsData.TOMORROW.length > 0 &&
-                    sectionsData.TOMORROW.every((t) => selectedTaskIds.has(t.id))
-                  }
-                  onToggleSelectAll={() =>
-                    selectAllSection(sectionsData.TOMORROW.map((t) => t.id))
-                  }
-                />
-                {expandedSection === "TOMORROW" && (
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={(e) => handleDragEnd(e, "TOMORROW")}
-                  >
-                    <SortableContext
-                      items={sectionsData.TOMORROW.map((t) => t.id)}
-                      strategy={verticalListSortingStrategy}
+              {shouldShowSection("TOMORROW", sectionsData.TOMORROW.length) && (
+                <div className="space-y-2">
+                  <TaskSectionHeader
+                    section="TOMORROW"
+                    title="Tomorrow"
+                    count={sectionsData.TOMORROW.length}
+                    isExpanded={isSectionExpanded("TOMORROW")}
+                    onToggle={() => toggleSection("TOMORROW")}
+                    isSelectionMode={isSelectionMode}
+                    isAllSelected={
+                      sectionsData.TOMORROW.length > 0 &&
+                      sectionsData.TOMORROW.every((t) => selectedTaskIds.has(t.id))
+                    }
+                    onToggleSelectAll={() =>
+                      selectAllSection(sectionsData.TOMORROW.map((t) => t.id))
+                    }
+                  />
+                  {isSectionExpanded("TOMORROW") && (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={(e) => handleDragEnd(e, "TOMORROW")}
                     >
-                      <div className="space-y-2">
-                        {sectionsData.TOMORROW.length === 0 ? (
-                          <div className="text-center py-6 text-xs text-[#918EA2] italic">
-                            Nothing scheduled for tomorrow.
-                          </div>
-                        ) : (
-                          sectionsData.TOMORROW.map((task) => (
-                            <SortableTaskCard
-                              key={task.id}
-                              task={task}
-                              hasSubtasks={subtaskProgressMap.has(task.id)}
-                              subtaskProgress={subtaskProgressMap.get(task.id)}
-                              parentTitle={task.parentId ? tasksById.get(task.parentId)?.title : null}
-                              isSelectionMode={isSelectionMode}
-                              isSelected={selectedTaskIds.has(task.id)}
-                              onToggleSelect={() => toggleSelectTask(task.id)}
-                              onToggleCompletion={() => toggleTaskCompletion(userCode, task.id)}
-                              onDrillDown={() => setBreadcrumb(task.id)}
-                              onNavigateToParent={() => task.parentId && setBreadcrumb(task.parentId)}
-                              onShowDetails={() => setSelectedTaskForDetails(task)}
-                              onEditTask={() => setTaskToEdit(task)}
-                              onAddSubtask={() => handleOpenAddSubtask(task)}
-                              onAdjustParent={() => setTaskForParentAdjust(task)}
-                              onDeleteTask={() => setTaskToDelete(task)}
-                              onReactivateForToday={
-                                task.repeatType
-                                  ? () => reactivateForToday(userCode, task.id)
-                                  : undefined
-                              }
-                            />
-                          ))
-                        )}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
-                )}
-              </div>
+                      <SortableContext
+                        items={sectionsData.TOMORROW.map((t) => t.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-2">
+                          {sectionsData.TOMORROW.length === 0 ? (
+                            <div className="text-center py-6 text-xs text-[#918EA2] italic">
+                              Nothing scheduled for tomorrow.
+                            </div>
+                          ) : (
+                            sectionsData.TOMORROW.map((task) => (
+                              <SortableTaskCard
+                                key={task.id}
+                                task={task}
+                                hasSubtasks={subtaskProgressMap.has(task.id)}
+                                subtaskProgress={subtaskProgressMap.get(task.id)}
+                                parentTitle={task.parentId ? tasksById.get(task.parentId)?.title : null}
+                                isSelectionMode={isSelectionMode}
+                                isSelected={selectedTaskIds.has(task.id)}
+                                onToggleSelect={() => toggleSelectTask(task.id)}
+                                onToggleCompletion={() => toggleTaskCompletion(userCode, task.id)}
+                                onDrillDown={() => setBreadcrumb(task.id)}
+                                onNavigateToParent={() => task.parentId && setBreadcrumb(task.parentId)}
+                                onShowDetails={() => setSelectedTaskForDetails(task)}
+                                onEditTask={() => setTaskToEdit(task)}
+                                onAddSubtask={() => handleOpenAddSubtask(task)}
+                                onAdjustParent={() => setTaskForParentAdjust(task)}
+                                onDeleteTask={() => setTaskToDelete(task)}
+                                onReactivateForToday={
+                                  task.repeatType
+                                    ? () => reactivateForToday(userCode, task.id)
+                                    : undefined
+                                }
+                              />
+                            ))
+                          )}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                  )}
+                </div>
+              )}
 
               {/* 5. UPCOMING SECTION */}
-              <div className="space-y-2">
-                <TaskSectionHeader
-                  section="UPCOMING"
-                  title="Upcoming"
-                  count={sectionsData.UPCOMING.length}
-                  isExpanded={expandedSection === "UPCOMING"}
-                  onToggle={() => toggleSection("UPCOMING")}
-                  isSelectionMode={isSelectionMode}
-                  isAllSelected={
-                    sectionsData.UPCOMING.length > 0 &&
-                    sectionsData.UPCOMING.every((t) => selectedTaskIds.has(t.id))
-                  }
-                  onToggleSelectAll={() =>
-                    selectAllSection(sectionsData.UPCOMING.map((t) => t.id))
-                  }
-                />
-                {expandedSection === "UPCOMING" && (
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={(e) => handleDragEnd(e, "UPCOMING")}
-                  >
-                    <SortableContext
-                      items={sectionsData.UPCOMING.map((t) => t.id)}
-                      strategy={verticalListSortingStrategy}
+              {shouldShowSection("UPCOMING", sectionsData.UPCOMING.length) && (
+                <div className="space-y-2">
+                  <TaskSectionHeader
+                    section="UPCOMING"
+                    title="Upcoming"
+                    count={sectionsData.UPCOMING.length}
+                    isExpanded={isSectionExpanded("UPCOMING")}
+                    onToggle={() => toggleSection("UPCOMING")}
+                    isSelectionMode={isSelectionMode}
+                    isAllSelected={
+                      sectionsData.UPCOMING.length > 0 &&
+                      sectionsData.UPCOMING.every((t) => selectedTaskIds.has(t.id))
+                    }
+                    onToggleSelectAll={() =>
+                      selectAllSection(sectionsData.UPCOMING.map((t) => t.id))
+                    }
+                  />
+                  {isSectionExpanded("UPCOMING") && (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={(e) => handleDragEnd(e, "UPCOMING")}
                     >
-                      <div className="space-y-2">
-                        {sectionsData.UPCOMING.length === 0 ? (
-                          <div className="text-center py-6 text-xs text-[#918EA2] italic">
-                            No upcoming scheduled tasks.
-                          </div>
-                        ) : (
-                          sectionsData.UPCOMING.map((task) => (
-                            <SortableTaskCard
-                              key={task.id}
-                              task={task}
-                              hasSubtasks={subtaskProgressMap.has(task.id)}
-                              subtaskProgress={subtaskProgressMap.get(task.id)}
-                              parentTitle={task.parentId ? tasksById.get(task.parentId)?.title : null}
-                              isSelectionMode={isSelectionMode}
-                              isSelected={selectedTaskIds.has(task.id)}
-                              onToggleSelect={() => toggleSelectTask(task.id)}
-                              onToggleCompletion={() => toggleTaskCompletion(userCode, task.id)}
-                              onDrillDown={() => setBreadcrumb(task.id)}
-                              onNavigateToParent={() => task.parentId && setBreadcrumb(task.parentId)}
-                              onShowDetails={() => setSelectedTaskForDetails(task)}
-                              onEditTask={() => setTaskToEdit(task)}
-                              onAddSubtask={() => handleOpenAddSubtask(task)}
-                              onAdjustParent={() => setTaskForParentAdjust(task)}
-                              onDeleteTask={() => setTaskToDelete(task)}
-                              onReactivateForToday={
-                                task.repeatType
-                                  ? () => reactivateForToday(userCode, task.id)
-                                  : undefined
-                              }
-                            />
-                          ))
-                        )}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
-                )}
-              </div>
+                      <SortableContext
+                        items={sectionsData.UPCOMING.map((t) => t.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-2">
+                          {sectionsData.UPCOMING.length === 0 ? (
+                            <div className="text-center py-6 text-xs text-[#918EA2] italic">
+                              No upcoming scheduled tasks.
+                            </div>
+                          ) : (
+                            sectionsData.UPCOMING.map((task) => (
+                              <SortableTaskCard
+                                key={task.id}
+                                task={task}
+                                hasSubtasks={subtaskProgressMap.has(task.id)}
+                                subtaskProgress={subtaskProgressMap.get(task.id)}
+                                parentTitle={task.parentId ? tasksById.get(task.parentId)?.title : null}
+                                isSelectionMode={isSelectionMode}
+                                isSelected={selectedTaskIds.has(task.id)}
+                                onToggleSelect={() => toggleSelectTask(task.id)}
+                                onToggleCompletion={() => toggleTaskCompletion(userCode, task.id)}
+                                onDrillDown={() => setBreadcrumb(task.id)}
+                                onNavigateToParent={() => task.parentId && setBreadcrumb(task.parentId)}
+                                onShowDetails={() => setSelectedTaskForDetails(task)}
+                                onEditTask={() => setTaskToEdit(task)}
+                                onAddSubtask={() => handleOpenAddSubtask(task)}
+                                onAdjustParent={() => setTaskForParentAdjust(task)}
+                                onDeleteTask={() => setTaskToDelete(task)}
+                                onReactivateForToday={
+                                  task.repeatType
+                                    ? () => reactivateForToday(userCode, task.id)
+                                    : undefined
+                                }
+                              />
+                            ))
+                          )}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                  )}
+                </div>
+              )}
 
               {/* 6. COMPLETED SECTION */}
-              <div className="space-y-2">
-                <TaskSectionHeader
-                  section="COMPLETED"
-                  title="Completed"
-                  count={sectionsData.COMPLETED.length}
-                  isExpanded={expandedSection === "COMPLETED"}
-                  onToggle={() => toggleSection("COMPLETED")}
-                  isSelectionMode={isSelectionMode}
-                  isAllSelected={
-                    sectionsData.COMPLETED.length > 0 &&
-                    sectionsData.COMPLETED.every((t) => selectedTaskIds.has(t.id))
-                  }
-                  onToggleSelectAll={() =>
-                    selectAllSection(sectionsData.COMPLETED.map((t) => t.id))
-                  }
-                />
-                {expandedSection === "COMPLETED" && (
-                  <div className="space-y-2">
-                    {sectionsData.COMPLETED.length === 0 ? (
-                      <div className="text-center py-6 text-xs text-[#918EA2] italic">
-                        No completed tasks yet. Check off items as you finish them!
-                      </div>
-                    ) : (
-                      sectionsData.COMPLETED.map((task) => (
-                        <SortableTaskCard
-                          key={task.id}
-                          task={task}
-                          hasSubtasks={subtaskProgressMap.has(task.id)}
-                          subtaskProgress={subtaskProgressMap.get(task.id)}
-                          parentTitle={task.parentId ? tasksById.get(task.parentId)?.title : null}
-                          isSelectionMode={isSelectionMode}
-                          isSelected={selectedTaskIds.has(task.id)}
-                          onToggleSelect={() => toggleSelectTask(task.id)}
-                          onToggleCompletion={() => toggleTaskCompletion(userCode, task.id)}
-                          onDrillDown={() => setBreadcrumb(task.id)}
-                          onNavigateToParent={() => task.parentId && setBreadcrumb(task.parentId)}
-                          onShowDetails={() => setSelectedTaskForDetails(task)}
-                          onEditTask={() => setTaskToEdit(task)}
-                          onAddSubtask={() => handleOpenAddSubtask(task)}
-                          onAdjustParent={() => setTaskForParentAdjust(task)}
-                          onDeleteTask={() => setTaskToDelete(task)}
-                          onReactivateForToday={
-                            task.repeatType
-                              ? () => reactivateForToday(userCode, task.id)
-                              : undefined
-                          }
-                        />
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
+              {shouldShowSection("COMPLETED", sectionsData.COMPLETED.length) && (
+                <div className="space-y-2">
+                  <TaskSectionHeader
+                    section="COMPLETED"
+                    title="Completed"
+                    count={sectionsData.COMPLETED.length}
+                    isExpanded={isSectionExpanded("COMPLETED")}
+                    onToggle={() => toggleSection("COMPLETED")}
+                    isSelectionMode={isSelectionMode}
+                    isAllSelected={
+                      sectionsData.COMPLETED.length > 0 &&
+                      sectionsData.COMPLETED.every((t) => selectedTaskIds.has(t.id))
+                    }
+                    onToggleSelectAll={() =>
+                      selectAllSection(sectionsData.COMPLETED.map((t) => t.id))
+                    }
+                  />
+                  {isSectionExpanded("COMPLETED") && (
+                    <div className="space-y-2">
+                      {sectionsData.COMPLETED.length === 0 ? (
+                        <div className="text-center py-6 text-xs text-[#918EA2] italic">
+                          No completed tasks yet. Check off items as you finish them!
+                        </div>
+                      ) : (
+                        sectionsData.COMPLETED.map((task) => (
+                          <SortableTaskCard
+                            key={task.id}
+                            task={task}
+                            hasSubtasks={subtaskProgressMap.has(task.id)}
+                            subtaskProgress={subtaskProgressMap.get(task.id)}
+                            parentTitle={task.parentId ? tasksById.get(task.parentId)?.title : null}
+                            isSelectionMode={isSelectionMode}
+                            isSelected={selectedTaskIds.has(task.id)}
+                            onToggleSelect={() => toggleSelectTask(task.id)}
+                            onToggleCompletion={() => toggleTaskCompletion(userCode, task.id)}
+                            onDrillDown={() => setBreadcrumb(task.id)}
+                            onNavigateToParent={() => task.parentId && setBreadcrumb(task.parentId)}
+                            onShowDetails={() => setSelectedTaskForDetails(task)}
+                            onEditTask={() => setTaskToEdit(task)}
+                            onAddSubtask={() => handleOpenAddSubtask(task)}
+                            onAdjustParent={() => setTaskForParentAdjust(task)}
+                            onDeleteTask={() => setTaskToDelete(task)}
+                            onReactivateForToday={
+                              task.repeatType
+                                ? () => reactivateForToday(userCode, task.id)
+                                : undefined
+                            }
+                          />
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Empty state when searching and no matches found */}
+              {isSearching && totalMatches === 0 && (
+                <div className="text-center py-12 text-[#918EA2] space-y-2">
+                  <Search className="w-8 h-8 mx-auto text-[#474556]" />
+                  <p className="text-sm font-medium">No tasks found</p>
+                  <p className="text-xs text-[#918EA2]">
+                    No tasks matching &ldquo;{searchQuery}&rdquo; in any section.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

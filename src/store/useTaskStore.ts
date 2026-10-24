@@ -24,6 +24,7 @@ interface FilterCriteria {
 }
 
 export type SortOption =
+  | "NONE"
   | "DUE_DATE_ASC"
   | "DUE_DATE_DESC"
   | "PRIORITY_DESC"
@@ -181,12 +182,12 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
   tasks: [],
   isLoading: false,
   error: null,
-  expandedSection: "TODAY", // accordion: one expanded at a time
+  expandedSection: null, // all collapsed by default
   selectedTaskIds: new Set<string>(),
   isSelectionMode: false,
   searchQuery: "",
   filter: {},
-  sort: "DUE_DATE_ASC",
+  sort: "NONE",
   breadcrumbParentId: null,
   recentTones: [{ title: "Default Alarm Tone", uri: null }],
   undoAction: null,

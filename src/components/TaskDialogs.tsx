@@ -692,14 +692,19 @@ export function SortTasksDialog({
 
   const sortOptions: { key: SortOption; label: string; desc: string }[] = [
     {
+      key: "NONE",
+      label: "None (Default Order)",
+      desc: "Manual drag order / creation order",
+    },
+    {
       key: "DUE_DATE_ASC",
       label: "Due Date: Earliest First",
-      desc: "Upcoming deadlines first",
+      desc: "Upcoming deadlines & earlier times first",
     },
     {
       key: "DUE_DATE_DESC",
       label: "Due Date: Latest First",
-      desc: "Later deadlines first",
+      desc: "Later deadlines & later times first",
     },
     {
       key: "PRIORITY_DESC",
@@ -730,7 +735,7 @@ export function SortTasksDialog({
   };
 
   const handleReset = () => {
-    onApplySort("DUE_DATE_ASC");
+    onApplySort("NONE");
     onOpenChange(false);
   };
 
