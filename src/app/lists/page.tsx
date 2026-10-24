@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronRight,
   CheckCircle2,
+  FileText,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -40,10 +41,11 @@ import { SortableListItemRow } from "@/components/SortableListItemRow";
 import { FloatingActionButton } from "@/components/FloatingActionButton";
 import { SelectionActionBar } from "@/components/SelectionActionBar";
 import { renderListIcon } from "@/components/ListIconPicker";
+import { ListItemDetailsPanel } from "@/components/ListItemDetailsPanel";
+import { ListDetailsPanel } from "@/components/ListDetailsPanel";
 import {
   AddMultipleItemsDialog,
   EditItemDialog,
-  ItemDetailsDialog,
   AdjustItemParentDialog,
   DeleteItemDialog,
 } from "@/components/ListItemDialogs";
@@ -98,6 +100,7 @@ export default function ListsPage() {
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listToEdit, setListToEdit] = useState<TaskList | null>(null);
   const [listToDelete, setListToDelete] = useState<TaskList | null>(null);
+  const [listForDetails, setListForDetails] = useState<TaskList | null>(null);
 
   // Item Modals state
   const [quickItemTitle, setQuickItemTitle] = useState("");
@@ -392,7 +395,7 @@ export default function ListsPage() {
                               onClick={() => setSelectedListId(list.id)}
                               onEdit={() => setListToEdit(list)}
                               onDelete={() => setListToDelete(list)}
-                              onShowDetails={() => setSelectedListId(list.id)}
+                              onShowDetails={() => setListForDetails(list)}
                               isSelectionMode={isSelectionMode}
                               isSelected={selectedListIds.has(list.id)}
                               onToggleSelect={() => toggleSelectList(list.id)}
@@ -484,20 +487,6 @@ export default function ListsPage() {
                       )}
                     </div>
 
-                    {/* Add Multiple Items button */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setParentForSubtasks(currentParent);
-                        setAddMultipleOpen(true);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#111114] border border-[#1C1C20] text-[#C5C0FF] hover:bg-[#C5C0FF]/10 hover:border-[#C5C0FF]/40 transition-colors shrink-0"
-                      title="Add multiple items"
-                    >
-                      <Layers className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Add Multiple</span>
-                    </button>
-
                     {/* 3-dots Menu */}
                     <DropdownMenu.Root>
                       <DropdownMenu.Trigger asChild>
@@ -514,8 +503,27 @@ export default function ListsPage() {
                         <DropdownMenu.Content
                           align="end"
                           sideOffset={6}
-                          className="z-50 min-w-[170px] bg-[#1C1C20] border border-[#474556]/40 rounded-xl p-1 shadow-2xl animate-in fade-in-80"
+                          className="z-50 min-w-[180px] bg-[#1C1C20] border border-[#474556]/40 rounded-xl p-1 shadow-2xl animate-in fade-in-80"
                         >
+                          <DropdownMenu.Item
+                            onClick={() => {
+                              setParentForSubtasks(currentParent);
+                              setAddMultipleOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#C5C0FF] rounded-lg cursor-pointer outline-none transition-colors"
+                          >
+                            <Layers className="w-3.5 h-3.5 text-[#C5C0FF]" />
+                            <span>Add Multiple Items</span>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item
+                            onClick={() => {
+                              if (currentList) setListForDetails(currentList);
+                            }}
+                            className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#C5C0FF] rounded-lg cursor-pointer outline-none transition-colors"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-[#C5C0FF]" />
+                            <span>List Details</span>
+                          </DropdownMenu.Item>
                           <DropdownMenu.Item
                             onClick={() => {
                               if (isSelectionMode) exitSelectionMode();
@@ -749,11 +757,14 @@ export default function ListsPage() {
               }
             }}
             listToEdit={listToEdit}
-            onSave={async (name, icon) => {
+            onSave={async (name, icon, initialItems) => {
               if (listToEdit) {
                 await updateList(userCode, listToEdit.id, name, icon);
               } else {
-                await createList(userCode, name, icon);
+                const created = await createList(userCode, name, icon);
+                if (created && initialItems && initialItems.length > 0) {
+                  await createMultipleItems(userCode, created.id, initialItems, null);
+                }
               }
             }}
           />
@@ -783,11 +794,36 @@ export default function ListsPage() {
             }}
           />
 
-          {/* Item Details Dialog */}
-          <ItemDetailsDialog
-            open={!!itemForDetails}
-            onOpenChange={(open) => !open && setItemForDetails(null)}
+          {/* Item Details Right Sidebar Panel */}
+          <ListItemDetailsPanel
+            isOpen={!!itemForDetails}
+            onClose={() => setItemForDetails(null)}
             item={itemForDetails}
+            listName={currentList?.name}
+            parentTitle={
+              itemForDetails?.parentId
+                ? currentListItems.find((p) => p.id === itemForDetails.parentId)?.title
+                : null
+            }
+            subtaskStats={
+              itemForDetails ? subtaskStatsMap.get(itemForDetails.id) : undefined
+            }
+            onEdit={(it) => setItemToEdit(it)}
+            onDelete={(it) => setItemToDelete(it)}
+          />
+
+          {/* List Details Right Sidebar Panel */}
+          <ListDetailsPanel
+            isOpen={!!listForDetails}
+            onClose={() => setListForDetails(null)}
+            list={listForDetails}
+            stats={listForDetails ? listStatsMap.get(listForDetails.id) : undefined}
+            onOpenList={(l) => {
+              setSelectedListId(l.id);
+              setListForDetails(null);
+            }}
+            onEdit={(l) => setListToEdit(l)}
+            onDelete={(l) => setListToDelete(l)}
           />
 
           {/* Adjust Item Parent Dialog */}

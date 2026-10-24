@@ -165,7 +165,9 @@ export const useListStore = create<ListStoreState>((set, get) => ({
 
   fetchLists: async (userCode: string) => {
     if (!userCode) return;
-    set({ isLoading: true, error: null });
+    if (get().lists.length === 0) {
+      set({ isLoading: true, error: null });
+    }
     try {
       const { data, error } = await supabase
         .from("task_lists")

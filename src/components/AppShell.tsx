@@ -50,10 +50,41 @@ export function AppShell({ children }: AppShellProps) {
     const unsubLists = subLists(user.code);
     const unsubHabits = subHabits(user.code);
 
+    // Continuous real-time synchronization with mobile & other tabs
+    const syncAll = () => {
+      if (user?.code) {
+        fetchTasks(user.code);
+        fetchLists(user.code);
+        fetchItems(user.code);
+        fetchHabits(user.code);
+        fetchLogs(user.code);
+      }
+    };
+
+    const handleFocus = () => syncAll();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        syncAll();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Fast 2.5-second background polling while document is active
+    const syncInterval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        syncAll();
+      }
+    }, 2500);
+
     return () => {
       unsubTasks();
       unsubLists();
       unsubHabits();
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(syncInterval);
     };
   }, [
     user?.code,

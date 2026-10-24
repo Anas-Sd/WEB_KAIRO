@@ -284,7 +284,9 @@ export const useHabitStore = create<HabitStoreState>((set, get) => ({
 
   fetchHabits: async (userCode: string) => {
     if (!userCode) return;
-    set({ isLoading: true, error: null });
+    if (get().habits.length === 0) {
+      set({ isLoading: true, error: null });
+    }
     try {
       const { data, error } = await supabase
         .from("habits")

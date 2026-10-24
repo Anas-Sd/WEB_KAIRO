@@ -194,7 +194,9 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
   fetchTasks: async (userCode: string) => {
     if (!userCode) return;
-    set({ isLoading: true, error: null });
+    if (get().tasks.length === 0) {
+      set({ isLoading: true, error: null });
+    }
     try {
       const { data, error } = await supabase
         .from("tasks")
