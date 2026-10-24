@@ -287,50 +287,47 @@ export default function TasksPage() {
       {({ onOpenSettings }) => (
         <div className="flex-1 flex flex-col w-full max-w-4xl mx-auto px-4 sm:px-6">
           {/* App Header */}
-          <AppHeader
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            searchPlaceholder="Search all tasks..."
-            onOpenSettings={onOpenSettings}
-            moreMenuItems={[
-              {
-                label: isSelectionMode ? "Exit Selection" : "Select Tasks",
-                icon: <CheckSquare className="w-4 h-4 text-[#C5C0FF]" />,
-                onClick: () => {
-                  if (isSelectionMode) exitSelectionMode();
-                  else enterSelectionMode();
-                },
-              },
-              {
-                label: "Refresh Tasks",
-                icon: <RefreshCw className="w-4 h-4 text-[#68DBA9]" />,
-                onClick: () => fetchTasks(userCode),
-              },
-              {
-                label: "Export Tasks",
-                icon: <Download className="w-4 h-4 text-[#FFB77D]" />,
-                onClick: () => setExportDialogOpen(true),
-              },
-            ]}
-          />
+          <AppHeader onOpenSettings={onOpenSettings} />
 
           <div className="mt-3">
-            {/* Breadcrumb if drilled into subtasks */}
-            <Breadcrumb
-              currentParentId={breadcrumbParentId}
-              allTasks={tasks}
-              onSelectCrumb={setBreadcrumb}
-            />
-
-            {/* Filter and Sort Controls */}
+            {/* Search, Filter, Sort, Export and 3-Dots Row */}
             <TaskFilterBar
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              searchPlaceholder="Search tasks by name or notes..."
               filter={filter}
               sort={sort}
               onFilterChange={setFilter}
               onSortChange={setSort}
               onResetFilters={clearFilters}
               onOpenExport={() => setExportDialogOpen(true)}
-              nextAlarm={nextAlarmInfo}
+              moreMenuItems={[
+                {
+                  label: isSelectionMode ? "Exit Selection" : "Select Tasks",
+                  icon: <CheckSquare className="w-4 h-4 text-[#C5C0FF]" />,
+                  onClick: () => {
+                    if (isSelectionMode) exitSelectionMode();
+                    else enterSelectionMode();
+                  },
+                },
+                {
+                  label: "Refresh Tasks",
+                  icon: <RefreshCw className="w-4 h-4 text-[#68DBA9]" />,
+                  onClick: () => fetchTasks(userCode),
+                },
+                {
+                  label: "Export Tasks",
+                  icon: <Download className="w-4 h-4 text-[#FFB77D]" />,
+                  onClick: () => setExportDialogOpen(true),
+                },
+              ]}
+            />
+
+            {/* Breadcrumb if drilled into subtasks */}
+            <Breadcrumb
+              currentParentId={breadcrumbParentId}
+              allTasks={tasks}
+              onSelectCrumb={setBreadcrumb}
             />
 
             {/* Sections Accordion */}

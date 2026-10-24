@@ -217,32 +217,82 @@ export default function ListsPage() {
           {/* ======================================================== */}
           {!selectedListId ? (
             <>
-              <AppHeader
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                searchPlaceholder="Search lists..."
-                onOpenSettings={onOpenSettings}
-                moreMenuItems={[
-                  {
-                    label: isSelectionMode ? "Exit Selection" : "Select Lists",
-                    icon: <CheckSquare className="w-4 h-4 text-[#C5C0FF]" />,
-                    onClick: () => {
-                      if (isSelectionMode) exitSelectionMode();
-                      else enterSelectionMode();
-                    },
-                  },
-                  {
-                    label: "Refresh Lists",
-                    icon: <RefreshCw className="w-4 h-4 text-[#68DBA9]" />,
-                    onClick: () => {
-                      fetchLists(userCode);
-                      fetchItems(userCode);
-                    },
-                  },
-                ]}
-              />
+              <AppHeader onOpenSettings={onOpenSettings} />
 
-              <div className="mt-4">
+              {/* Persistent Search and Controls Row */}
+              <div className="flex items-center gap-2 mt-3 mb-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#918EA2] pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search lists..."
+                    className="w-full bg-[#111114] border border-[#1C1C20] hover:border-[#474556]/50 focus:border-[#C5C0FF] rounded-xl pl-9 pr-8 py-2 text-xs sm:text-sm text-[#E3E1EC] placeholder-[#918EA2] transition-colors focus:outline-none"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#918EA2] hover:text-white p-0.5 rounded-full"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCreateListOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#111114] border border-[#1C1C20] text-[#C5C0FF] hover:bg-[#C5C0FF]/10 hover:border-[#C5C0FF]/40 transition-colors shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">New List</span>
+                </button>
+
+                {/* 3-dots Menu Button */}
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      className="p-2 rounded-xl bg-[#111114] border border-[#1C1C20] text-[#918EA2] hover:text-white hover:border-[#474556] transition-colors shrink-0"
+                      title="More options"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      align="end"
+                      sideOffset={6}
+                      className="z-50 min-w-[170px] bg-[#1C1C20] border border-[#474556]/40 rounded-xl p-1 shadow-2xl animate-in fade-in-80"
+                    >
+                      <DropdownMenu.Item
+                        onClick={() => {
+                          if (isSelectionMode) exitSelectionMode();
+                          else enterSelectionMode();
+                        }}
+                        className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg cursor-pointer outline-none transition-colors text-[#E3E1EC] hover:bg-[#252529] hover:text-[#C5C0FF]"
+                      >
+                        <CheckSquare className="w-4 h-4 text-[#C5C0FF]" />
+                        <span>{isSelectionMode ? "Exit Selection" : "Select Lists"}</span>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        onClick={() => {
+                          fetchLists(userCode);
+                          fetchItems(userCode);
+                        }}
+                        className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg cursor-pointer outline-none transition-colors text-[#E3E1EC] hover:bg-[#252529] hover:text-[#68DBA9]"
+                      >
+                        <RefreshCw className="w-4 h-4 text-[#68DBA9]" />
+                        <span>Refresh Lists</span>
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              </div>
+
+              <div>
                 <div className="flex items-center justify-between mb-3 px-1">
                   <h2 className="text-xs font-bold uppercase tracking-wider text-[#918EA2]">
                     My Task Lists ({filteredLists.length})
@@ -346,15 +396,27 @@ export default function ListsPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    {/* Search toggle */}
-                    <button
-                      type="button"
-                      onClick={() => setIsItemSearchOpen(!isItemSearchOpen)}
-                      className="p-2 rounded-xl text-[#918EA2] hover:text-white hover:bg-[#161619]"
-                    >
-                      <Search className="w-4 h-4" />
-                    </button>
+                  <div className="flex items-center gap-2 mt-3">
+                    {/* Search box (flex-1) */}
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#918EA2] pointer-events-none" />
+                      <input
+                        type="text"
+                        value={itemSearchQuery}
+                        onChange={(e) => setItemSearchQuery(e.target.value)}
+                        placeholder="Search items in this list..."
+                        className="w-full bg-[#111114] border border-[#1C1C20] hover:border-[#474556]/50 focus:border-[#C5C0FF] rounded-xl pl-9 pr-8 py-2 text-xs sm:text-sm text-[#E3E1EC] placeholder-[#918EA2] transition-colors focus:outline-none"
+                      />
+                      {itemSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setItemSearchQuery("")}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#918EA2] hover:text-white p-0.5 rounded-full"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
 
                     {/* Add Multiple Items button */}
                     <button
@@ -363,10 +425,11 @@ export default function ListsPage() {
                         setParentForSubtasks(null);
                         setAddMultipleOpen(true);
                       }}
-                      className="p-2 rounded-xl text-[#C5C0FF] hover:bg-[#161619]"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#111114] border border-[#1C1C20] text-[#C5C0FF] hover:bg-[#C5C0FF]/10 hover:border-[#C5C0FF]/40 transition-colors shrink-0"
                       title="Add multiple items"
                     >
-                      <Layers className="w-4 h-4" />
+                      <Layers className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Add Multiple</span>
                     </button>
 
                     {/* 3-dots Menu */}
@@ -374,7 +437,8 @@ export default function ListsPage() {
                       <DropdownMenu.Trigger asChild>
                         <button
                           type="button"
-                          className="p-2 rounded-xl text-[#918EA2] hover:text-white hover:bg-[#161619]"
+                          className="p-2 rounded-xl bg-[#111114] border border-[#1C1C20] text-[#918EA2] hover:text-white hover:border-[#474556] transition-colors shrink-0"
+                          title="More options"
                         >
                           <MoreVertical className="w-4 h-4" />
                         </button>
@@ -384,21 +448,21 @@ export default function ListsPage() {
                         <DropdownMenu.Content
                           align="end"
                           sideOffset={6}
-                          className="z-50 min-w-[160px] bg-[#1C1C20] border border-[#474556]/40 rounded-xl p-1 shadow-2xl"
+                          className="z-50 min-w-[170px] bg-[#1C1C20] border border-[#474556]/40 rounded-xl p-1 shadow-2xl animate-in fade-in-80"
                         >
                           <DropdownMenu.Item
                             onClick={() => {
                               if (isSelectionMode) exitSelectionMode();
                               else enterSelectionMode();
                             }}
-                            className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] rounded-lg cursor-pointer outline-none"
+                            className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#C5C0FF] rounded-lg cursor-pointer outline-none transition-colors"
                           >
                             <CheckSquare className="w-3.5 h-3.5 text-[#C5C0FF]" />
                             <span>{isSelectionMode ? "Exit Selection" : "Select Items"}</span>
                           </DropdownMenu.Item>
                           <DropdownMenu.Item
                             onClick={() => fetchItems(userCode)}
-                            className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] rounded-lg cursor-pointer outline-none"
+                            className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#68DBA9] rounded-lg cursor-pointer outline-none transition-colors"
                           >
                             <RefreshCw className="w-3.5 h-3.5 text-[#68DBA9]" />
                             <span>Refresh Items</span>
@@ -408,30 +472,6 @@ export default function ListsPage() {
                     </DropdownMenu.Root>
                   </div>
                 </div>
-
-                {/* Search Bar Input (slides down) */}
-                {isItemSearchOpen && (
-                  <div className="mt-2.5 relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#918EA2]" />
-                    <input
-                      type="text"
-                      value={itemSearchQuery}
-                      onChange={(e) => setItemSearchQuery(e.target.value)}
-                      placeholder="Search items in this list..."
-                      className="w-full bg-[#161619] border border-[#474556]/50 rounded-xl pl-9 pr-8 py-2 text-xs text-[#E3E1EC] placeholder-[#918EA2] focus:outline-none focus:border-[#C5C0FF]"
-                      autoFocus
-                    />
-                    {itemSearchQuery && (
-                      <button
-                        type="button"
-                        onClick={() => setItemSearchQuery("")}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#918EA2] hover:text-white"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                )}
 
                 {/* Progress bar */}
                 <div className="w-full h-1 bg-[#161619] rounded-full overflow-hidden mt-3">

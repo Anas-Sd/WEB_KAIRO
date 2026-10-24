@@ -54,3 +54,39 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #474556;
 }
+
+/* Universal interactive cursor pointers */
+button,
+[role="button"],
+a,
+input[type="checkbox"],
+input[type="radio"],
+input[type="submit"],
+input[type="button"],
+select,
+label[for],
+label:has(input),
+summary,
+.cursor-pointer,
+[data-state],
+[data-radix-collection-item],
+[tabindex="0"] {
+  cursor: pointer !important;
+}
+
+button:disabled,
+button[disabled],
+[aria-disabled="true"] {
+  cursor: not-allowed !important;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="search"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+textarea {
+  cursor: text !important;
+}

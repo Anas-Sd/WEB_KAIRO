@@ -134,7 +134,10 @@ export function ListItemRow({
           </motion.button>
 
           {/* Title and notes */}
-          <div className="flex items-center gap-2 truncate">
+          <div
+            onClick={() => onShowDetails(item)}
+            className="flex items-center gap-2 truncate cursor-pointer flex-1"
+          >
             <span
               className={`text-sm truncate transition-colors ${
                 item.isCompleted

@@ -7,7 +7,11 @@ import {
   Download,
   Flame,
   Plus,
+  Search,
+  X,
+  MoreVertical,
 } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   DndContext,
   closestCenter,
@@ -210,37 +214,90 @@ export default function HabitsPage() {
           {/* ======================================================== */}
           {!selectedHabitId ? (
             <>
-              <AppHeader
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                searchPlaceholder="Search habits..."
-                onOpenSettings={onOpenSettings}
-                moreMenuItems={[
-                  {
-                    label: isSelectionMode ? "Exit Selection" : "Select Habits",
-                    icon: <CheckSquare className="w-4 h-4 text-[#C5C0FF]" />,
-                    onClick: () => {
-                      if (isSelectionMode) exitSelectionMode();
-                      else enterSelectionMode();
-                    },
-                  },
-                  {
-                    label: "Refresh Habits",
-                    icon: <RefreshCw className="w-4 h-4 text-[#68DBA9]" />,
-                    onClick: () => {
-                      fetchHabits(userCode);
-                      fetchLogs(userCode);
-                    },
-                  },
-                  {
-                    label: "Export Habits",
-                    icon: <Download className="w-4 h-4 text-[#FFB77D]" />,
-                    onClick: () => setExportDialogOpen(true),
-                  },
-                ]}
-              />
+              <AppHeader onOpenSettings={onOpenSettings} />
 
-              <div className="mt-4">
+              {/* Persistent Search and Controls Row */}
+              <div className="flex items-center gap-2 mt-3 mb-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#918EA2] pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search habits by name..."
+                    className="w-full bg-[#111114] border border-[#1C1C20] hover:border-[#474556]/50 focus:border-[#C5C0FF] rounded-xl pl-9 pr-8 py-2 text-xs sm:text-sm text-[#E3E1EC] placeholder-[#918EA2] transition-colors focus:outline-none"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#918EA2] hover:text-white p-0.5 rounded-full"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setExportDialogOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#111114] border border-[#1C1C20] text-[#68DBA9] hover:bg-[#68DBA9]/10 hover:border-[#68DBA9]/40 transition-colors shrink-0"
+                  title="Export habits"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+
+                {/* 3-dots Menu Button */}
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      className="p-2 rounded-xl bg-[#111114] border border-[#1C1C20] text-[#918EA2] hover:text-white hover:border-[#474556] transition-colors shrink-0"
+                      title="More options"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      align="end"
+                      sideOffset={6}
+                      className="z-50 min-w-[170px] bg-[#1C1C20] border border-[#474556]/40 rounded-xl p-1 shadow-2xl animate-in fade-in-80"
+                    >
+                      <DropdownMenu.Item
+                        onClick={() => {
+                          if (isSelectionMode) exitSelectionMode();
+                          else enterSelectionMode();
+                        }}
+                        className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg cursor-pointer outline-none transition-colors text-[#E3E1EC] hover:bg-[#252529] hover:text-[#C5C0FF]"
+                      >
+                        <CheckSquare className="w-4 h-4 text-[#C5C0FF]" />
+                        <span>{isSelectionMode ? "Exit Selection" : "Select Habits"}</span>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        onClick={() => {
+                          fetchHabits(userCode);
+                          fetchLogs(userCode);
+                        }}
+                        className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg cursor-pointer outline-none transition-colors text-[#E3E1EC] hover:bg-[#252529] hover:text-[#68DBA9]"
+                      >
+                        <RefreshCw className="w-4 h-4 text-[#68DBA9]" />
+                        <span>Refresh Habits</span>
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Item
+                        onClick={() => setExportDialogOpen(true)}
+                        className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg cursor-pointer outline-none transition-colors text-[#E3E1EC] hover:bg-[#252529] hover:text-[#FFB77D]"
+                      >
+                        <Download className="w-4 h-4 text-[#FFB77D]" />
+                        <span>Export Habits</span>
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+              </div>
+
+              <div>
                 {/* Discipline Overview Ring Card */}
                 {!searchQuery && <DisciplineOverviewCard habits={habits} logs={logs} />}
 
