@@ -15,6 +15,7 @@ import {
   isSameDay,
   isBefore,
   parseISO,
+  addDays,
 } from "date-fns";
 import {
   ArrowLeft,
@@ -34,7 +35,12 @@ import {
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { Habit, HabitLog } from "@/types";
-import { calculateHabitStreak, isDayComplete } from "@/store/useHabitStore";
+import {
+  calculateHabitStreak,
+  isDayComplete,
+  getEffectiveDayState,
+  getEffectiveStartDate,
+} from "@/store/useHabitStore";
 
 interface HabitDetailViewProps {
   habit: Habit;
@@ -64,7 +70,7 @@ export function HabitDetailView({
 }: HabitDetailViewProps) {
   const today = new Date();
   const todayStr = format(today, "yyyy-MM-dd");
-  const habitStartDate = parseISO(habit.startDate);
+  const habitStartDate = getEffectiveStartDate(habit);
 
   const [currentMonth, setCurrentMonth] = useState<Date>(startOfMonth(today));
 
@@ -81,25 +87,36 @@ export function HabitDetailView({
   // Today log
   const todayLog = logs?.get(todayStr);
   const isCompletedToday = isDayComplete(habit, todayLog);
-  const isMissedToday = todayLog?.state === "MISSED" && !isCompletedToday;
+  const todayEffective = getEffectiveDayState(habit, today, todayLog, today);
+  const isMissedToday = todayEffective.state === "MISSED";
   const targetCurrentVal = todayLog?.value ?? 0;
 
   // 7-day strip (6 days ago -> today)
   const last7Days = Array.from({ length: 7 }, (_, i) => subDays(today, 6 - i));
 
-  // Cycle day state: UNMARKED -> DONE -> MISSED -> UNMARKED
+  // Cycle day state matching Android:
+  // Past days toggle between DONE and MISSED. Today cycles UNMARKED -> DONE -> MISSED -> UNMARKED.
   const handleCycleDay = async (dStr: string) => {
+    const d = parseISO(dStr);
     const existing = logs?.get(dStr);
-    let nextState: "DONE" | "MISSED" | "UNMARKED" = "DONE";
-    if (existing?.state === "DONE") nextState = "MISSED";
-    else if (existing?.state === "MISSED") nextState = "UNMARKED";
-    else nextState = "DONE";
+    const dayInfo = getEffectiveDayState(habit, d, existing, today);
+
+    if (dayInfo.isRest || dayInfo.isBeforeStart || dayInfo.isFuture) return;
+
+    let nextState: "DONE" | "MISSED" | "UNMARKED";
+    if (dayInfo.isPast) {
+      nextState = dayInfo.state === "DONE" ? "MISSED" : "DONE";
+    } else {
+      if (dayInfo.state === "UNMARKED") nextState = "DONE";
+      else if (dayInfo.state === "DONE") nextState = "MISSED";
+      else nextState = "UNMARKED";
+    }
 
     await onSetState(
       dStr,
       nextState,
       nextState === "DONE" && habit.type === "TARGET" ? habit.targetValue : null,
-      existing?.note
+      existing?.note || (nextState === "MISSED" ? "missed" : null)
     );
   };
 
@@ -127,15 +144,16 @@ export function HabitDetailView({
           scheduledCount++;
           const dStr = format(check, "yyyy-MM-dd");
           const l = logs?.get(dStr);
-          if (isDayComplete(habit, l)) {
+          const dayInfo = getEffectiveDayState(habit, check, l, today);
+          if (dayInfo.state === "DONE") {
             doneCount++;
-          } else if (l?.state === "MISSED") {
+          } else if (dayInfo.state === "MISSED") {
             missedCount++;
           } else {
             unmarkedCount++;
           }
         }
-        check = new Date(check.getTime() + 86400000);
+        check = addDays(check, 1);
       }
 
       const adherence = scheduledCount > 0 ? Math.round((doneCount / scheduledCount) * 100) : 0;
@@ -262,17 +280,18 @@ export function HabitDetailView({
             {last7Days.map((d, idx) => {
               const dStr = format(d, "yyyy-MM-dd");
               const isCur = dStr === todayStr;
-              const isBeforeStart = isBefore(d, habitStartDate) && dStr !== habit.startDate;
-              const isSched = isScheduledOnDay(d);
-
               const log = logs?.get(dStr);
-              const isDone = isDayComplete(habit, log);
-              const isMissed = log?.state === "MISSED";
+              const dayInfo = getEffectiveDayState(habit, d, log, today);
+
+              const isDone = dayInfo.state === "DONE";
+              const isMissed = dayInfo.state === "MISSED";
+              const isBeforeStart = dayInfo.isBeforeStart;
+              const isRest = dayInfo.isRest;
 
               return (
                 <div
                   key={idx}
-                  onClick={() => !isBeforeStart && handleCycleDay(dStr)}
+                  onClick={() => !isBeforeStart && !isRest && handleCycleDay(dStr)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     onOpenNoteDialog(dStr, log?.note);
@@ -296,7 +315,7 @@ export function HabitDetailView({
                         ? "bg-[#68DBA9] text-black font-bold shadow-md shadow-[#68DBA9]/20"
                         : isMissed
                         ? "bg-[#EF4444] text-white font-bold"
-                        : !isSched
+                        : isRest
                         ? "border border-[#474556]/40 text-[#918EA2] text-[9px] uppercase"
                         : "bg-[#252529] text-[#918EA2]"
                     }`}
@@ -307,7 +326,7 @@ export function HabitDetailView({
                       <Check className="w-4 h-4 stroke-[3]" />
                     ) : isMissed ? (
                       <X className="w-3.5 h-3.5 stroke-[3]" />
-                    ) : !isSched ? (
+                    ) : isRest ? (
                       "REST"
                     ) : null}
                   </div>
@@ -433,17 +452,18 @@ export function HabitDetailView({
               const dStr = format(d, "yyyy-MM-dd");
               const inMonth = isSameMonth(d, currentMonth);
               const isCur = isSameDay(d, today);
-              const isBeforeStart = isBefore(d, habitStartDate) && dStr !== habit.startDate;
-              const isSched = isScheduledOnDay(d);
-
               const log = logs?.get(dStr);
-              const isDone = isDayComplete(habit, log);
-              const isMissed = log?.state === "MISSED";
+              const dayInfo = inMonth ? getEffectiveDayState(habit, d, log, today) : null;
+
+              const isDone = dayInfo?.state === "DONE";
+              const isMissed = dayInfo?.state === "MISSED";
+              const isBeforeStart = dayInfo?.isBeforeStart;
+              const isRest = dayInfo?.isRest;
 
               return (
                 <div
                   key={idx}
-                  onClick={() => inMonth && !isBeforeStart && handleCycleDay(dStr)}
+                  onClick={() => inMonth && !isBeforeStart && !isRest && handleCycleDay(dStr)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     if (inMonth) onOpenNoteDialog(dStr, log?.note);
@@ -461,11 +481,11 @@ export function HabitDetailView({
                       ? "bg-[#68DBA9] text-black font-bold shadow-sm shadow-[#68DBA9]/20"
                       : isMissed
                       ? "bg-[#EF4444] text-white"
-                      : !isSched
+                      : isRest
                       ? "bg-[#111114] text-[#918EA2]/40"
                       : "bg-[#252529] text-[#918EA2] hover:bg-[#1C1C20]"
                   }`}
-                  title={`${dStr}: ${isDone ? "Done" : isMissed ? "Missed" : !isSched ? "Rest" : "Unmarked"}`}
+                  title={`${dStr}: ${isDone ? "Done" : isMissed ? "Missed" : isRest ? "Rest" : "Unmarked"}`}
                 >
                   {isBeforeStart ? (
                     <Lock className="w-3 h-3" />

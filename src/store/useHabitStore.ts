@@ -75,6 +75,131 @@ export function isDayComplete(habit: Habit, log?: HabitLog): boolean {
   return log.state === "DONE";
 }
 
+export function getEffectiveStartDate(habit: Habit): Date {
+  if (habit.startDate && habit.startDate.trim().length > 0) {
+    try {
+      const d = parseISO(habit.startDate);
+      if (!isNaN(d.getTime())) {
+        return startOfDay(d);
+      }
+    } catch {}
+  }
+  if (habit.createdAt) {
+    try {
+      const d = new Date(habit.createdAt);
+      if (!isNaN(d.getTime())) {
+        return startOfDay(d);
+      }
+    } catch {}
+  }
+  return startOfDay(new Date());
+}
+
+export interface EffectiveDayInfo {
+  state: "DONE" | "MISSED" | "UNMARKED";
+  value: number;
+  note: string | null;
+  isRest: boolean;
+  isBeforeStart: boolean;
+  isPast: boolean;
+  isToday: boolean;
+  isFuture: boolean;
+}
+
+export function getEffectiveDayState(
+  habit: Habit,
+  date: Date,
+  log?: HabitLog,
+  today = new Date()
+): EffectiveDayInfo {
+  const toIsoDay = (d: Date) => (d.getDay() === 0 ? 7 : d.getDay());
+  const dateStr = format(date, "yyyy-MM-dd");
+  const todayStr = format(today, "yyyy-MM-dd");
+
+  const isToday = dateStr === todayStr;
+  const isPast = isBefore(startOfDay(date), startOfDay(today));
+  const isFuture = isBefore(startOfDay(today), startOfDay(date));
+
+  const habitStartDate = getEffectiveStartDate(habit);
+  const isBeforeStart = isBefore(startOfDay(date), habitStartDate);
+  const isRest =
+    habit.repeatType === "SPECIFIC_DAYS" && !habit.repeatDays.includes(toIsoDay(date));
+
+  const value = log?.value ?? (log?.state === "DONE" ? (habit.targetValue || 1) : 0);
+  const note = log?.note ?? null;
+
+  let state: "DONE" | "MISSED" | "UNMARKED" = "UNMARKED";
+  if (isRest || isBeforeStart) {
+    state = "UNMARKED";
+  } else if (isPast) {
+    // In Android: any past day before today is either DONE or MISSED
+    if (isDayComplete(habit, log)) {
+      state = "DONE";
+    } else {
+      state = "MISSED";
+    }
+  } else if (isToday) {
+    if (isDayComplete(habit, log)) {
+      state = "DONE";
+    } else if (log?.state === "MISSED") {
+      state = "MISSED";
+    } else {
+      state = "UNMARKED";
+    }
+  } else {
+    state = "UNMARKED";
+  }
+
+  return {
+    state,
+    value,
+    note,
+    isRest,
+    isBeforeStart,
+    isPast,
+    isToday,
+    isFuture,
+  };
+}
+
+export function calculateHabitCounts(
+  habit: Habit,
+  logs: Map<string, HabitLog> | undefined,
+  today = new Date()
+) {
+  const habitStartDate = getEffectiveStartDate(habit);
+  const logsMap = logs || new Map();
+  let totalDone = 0;
+  let totalMissed = 0;
+
+  logsMap.forEach((rec, dateStr) => {
+    try {
+      const d = parseISO(dateStr);
+      if (!isBefore(d, habitStartDate)) {
+        if (isDayComplete(habit, rec)) {
+          totalDone++;
+        } else if (rec.state === "MISSED") {
+          totalMissed++;
+        }
+      }
+    } catch {}
+  });
+
+  // Weekly done count for this current week (Monday to Sunday)
+  const currentWeekStart = startOfWeek(today, { weekStartsOn: 1 });
+  let weeklyDoneCount = 0;
+  for (let i = 0; i < 7; i++) {
+    const cur = addDays(currentWeekStart, i);
+    const curStr = format(cur, "yyyy-MM-dd");
+    const rec = logsMap.get(curStr);
+    if (isDayComplete(habit, rec)) {
+      weeklyDoneCount++;
+    }
+  }
+
+  return { totalDone, totalMissed, weeklyDoneCount };
+}
+
 export function calculateHabitStreak(
   habit: Habit,
   habitLogs: Map<string, HabitLog>,
@@ -566,14 +691,15 @@ export const useHabitStore = create<HabitStoreState>((set, get) => ({
     const toIsoDay = (d: Date) => (d.getDay() === 0 ? 7 : d.getDay());
 
     const logsToUpsert: HabitLogDto[] = [];
+    const currentLogs = new Map(logs);
 
     for (const habit of habits) {
-      const habitStartDate = parseISO(habit.startDate);
+      const habitStartDate = getEffectiveStartDate(habit);
       const minDate = subDays(today, 60);
       const start = isBefore(minDate, habitStartDate) ? habitStartDate : minDate;
 
       let checkDate = start;
-      const habitDates = logs.get(habit.id);
+      const habitDates = currentLogs.get(habit.id) || new Map();
 
       while (isBefore(checkDate, today)) {
         let isScheduled = false;
@@ -585,28 +711,32 @@ export const useHabitStore = create<HabitStoreState>((set, get) => ({
 
         if (isScheduled) {
           const dateStr = format(checkDate, "yyyy-MM-dd");
-          const existing = habitDates?.get(dateStr);
-          if (!existing) {
+          const existing = habitDates.get(dateStr);
+          const isDone = isDayComplete(habit, existing);
+
+          if (!isDone && existing?.state !== "MISSED") {
             const missedLog: HabitLog = {
               id: `${habit.id}_${dateStr}`,
               habitId: habit.id,
               userCode,
               date: dateStr,
               state: "MISSED",
-              value: habit.type === "TARGET" ? 0 : null,
-              note: null,
-              createdAt: Date.now(),
+              value: existing?.value ?? 0,
+              note: existing?.note || "missed",
+              createdAt: existing?.createdAt ?? Date.now(),
             };
+            habitDates.set(dateStr, missedLog);
             logsToUpsert.push(logDomainToDto(missedLog));
           }
         }
         checkDate = addDays(checkDate, 1);
       }
+      currentLogs.set(habit.id, habitDates);
     }
 
     if (logsToUpsert.length > 0) {
+      set({ logs: currentLogs });
       await supabase.from("habit_logs").upsert(logsToUpsert);
-      await get().fetchLogs(userCode);
     }
   },
 
