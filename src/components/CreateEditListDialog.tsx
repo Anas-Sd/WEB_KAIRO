@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Plus, Layers } from "lucide-react";
 import { TaskList } from "@/types";
@@ -26,8 +26,14 @@ export function CreateEditListDialog({
   const [initialItems, setInitialItems] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
+  const prevOpenRef = useRef(false);
+  const prevListIdRef = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    if (open) {
+    const isOpening = open && !prevOpenRef.current;
+    const isListSwitched = open && (listToEdit?.id ?? null) !== prevListIdRef.current;
+
+    if (isOpening || isListSwitched) {
       if (listToEdit) {
         setName(listToEdit.name);
         setIconName(listToEdit.iconName);
@@ -40,7 +46,10 @@ export function CreateEditListDialog({
         setInitialItems([]);
       }
     }
-  }, [open, listToEdit]);
+
+    prevOpenRef.current = open;
+    prevListIdRef.current = listToEdit?.id ?? null;
+  }, [open, listToEdit?.id]);
 
   const commitItem = () => {
     const trimmed = itemInput.trim();

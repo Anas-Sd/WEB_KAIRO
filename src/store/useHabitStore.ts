@@ -424,7 +424,35 @@ export const useHabitStore = create<HabitStoreState>((set, get) => ({
         return;
       }
 
-      set({ habits: (data || []).map(dtoHabitToDomain), isLoading: false });
+      const newHabits = (data || []).map(dtoHabitToDomain);
+      const currentHabits = get().habits;
+      const habitsUnchanged =
+        currentHabits.length === newHabits.length &&
+        currentHabits.every((h, i) => {
+          const nh = newHabits[i];
+          return (
+            h.id === nh.id &&
+            h.title === nh.title &&
+            h.type === nh.type &&
+            h.targetValue === nh.targetValue &&
+            h.targetUnit === nh.targetUnit &&
+            h.repeatType === nh.repeatType &&
+            h.position === nh.position &&
+            h.updatedAt === nh.updatedAt &&
+            h.reminderEnabled === nh.reminderEnabled &&
+            h.reminderTime === nh.reminderTime &&
+            h.notePrompt === nh.notePrompt &&
+            h.startDate === nh.startDate &&
+            h.repeatDays.join(",") === nh.repeatDays.join(",") &&
+            h.weeklyTargetCount === nh.weeklyTargetCount
+          );
+        });
+
+      if (habitsUnchanged) {
+        if (get().isLoading) set({ isLoading: false });
+      } else {
+        set({ habits: newHabits, isLoading: false });
+      }
     } catch (err: unknown) {
       set({
         error: err instanceof Error ? err.message : "Failed to load habits",
@@ -446,8 +474,31 @@ export const useHabitStore = create<HabitStoreState>((set, get) => ({
         return;
       }
 
+      const rawRows = data || [];
+      const currentMap = get().logs;
+      let totalCurrent = 0;
+      for (const m of currentMap.values()) {
+        totalCurrent += m.size;
+      }
+      if (totalCurrent === rawRows.length) {
+        let diff = false;
+        for (const row of rawRows) {
+          const cur = currentMap.get(row.habit_id)?.get(row.date);
+          if (
+            !cur ||
+            cur.state !== row.state ||
+            cur.value !== (row.value ?? null) ||
+            cur.note !== (row.note ?? null)
+          ) {
+            diff = true;
+            break;
+          }
+        }
+        if (!diff) return;
+      }
+
       const map = new Map<string, Map<string, HabitLog>>();
-      for (const row of data || []) {
+      for (const row of rawRows) {
         const domain = dtoLogToDomain(row);
         if (!map.has(domain.habitId)) {
           map.set(domain.habitId, new Map());

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { format, parseISO } from "date-fns";
 import { X, Calendar, Clock, Bell, Repeat, FolderPlus } from "lucide-react";
@@ -45,8 +45,14 @@ export function CreateEditTaskDialog({
   const [isRepeatPickerOpen, setIsRepeatPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  const prevOpenRef = useRef(false);
+  const prevTaskIdRef = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    if (open) {
+    const isOpening = open && !prevOpenRef.current;
+    const isTaskSwitched = open && (taskToEdit?.id ?? null) !== prevTaskIdRef.current;
+
+    if (isOpening || isTaskSwitched) {
       if (taskToEdit) {
         setTitle(taskToEdit.title);
         setNotes(taskToEdit.notes || "");
@@ -76,7 +82,10 @@ export function CreateEditTaskDialog({
         setRepeatDates(null);
       }
     }
-  }, [open, taskToEdit, recentTones]);
+
+    prevOpenRef.current = open;
+    prevTaskIdRef.current = taskToEdit?.id ?? null;
+  }, [open, taskToEdit?.id]);
 
   const handleDateChange = (iso: string) => {
     setDueDateIso(iso);

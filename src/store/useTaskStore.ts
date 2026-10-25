@@ -225,10 +225,19 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
         }
       }
 
+      const nextRecentTones = Array.from(tonesMap.values());
+      const currentTones = get().recentTones;
+      const tonesChanged =
+        currentTones.length !== nextRecentTones.length ||
+        currentTones.some(
+          (tone, i) =>
+            tone.title !== nextRecentTones[i]?.title || tone.uri !== nextRecentTones[i]?.uri
+        );
+
       set({
         tasks,
         isLoading: false,
-        recentTones: Array.from(tonesMap.values()),
+        ...(tonesChanged ? { recentTones: nextRecentTones } : {}),
       });
     } catch (err: unknown) {
       set({

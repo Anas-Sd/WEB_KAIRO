@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { format } from "date-fns";
 import { X, Flame, Target, CheckCircle2, Clock, Calendar } from "lucide-react";
@@ -51,8 +51,14 @@ export function CreateEditHabitDialog({
   const [startDate, setStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [saving, setSaving] = useState(false);
 
+  const prevOpenRef = useRef(false);
+  const prevEditIdRef = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    if (open) {
+    const isOpening = open && !prevOpenRef.current;
+    const isHabitSwitched = open && (habitToEdit?.id ?? null) !== prevEditIdRef.current;
+
+    if (isOpening || isHabitSwitched) {
       if (habitToEdit) {
         setTitle(habitToEdit.title);
         setType(habitToEdit.type);
@@ -84,7 +90,10 @@ export function CreateEditHabitDialog({
         setStartDate(format(new Date(), "yyyy-MM-dd"));
       }
     }
-  }, [open, habitToEdit, recentTones]);
+
+    prevOpenRef.current = open;
+    prevEditIdRef.current = habitToEdit?.id ?? null;
+  }, [open, habitToEdit?.id]);
 
   const toggleDay = (dayVal: number) => {
     setRepeatDays((prev) => {
