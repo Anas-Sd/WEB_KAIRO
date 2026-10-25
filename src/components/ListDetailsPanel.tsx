@@ -11,6 +11,7 @@ import {
   Edit2,
   Trash2,
   ArrowRight,
+  FolderTree,
 } from "lucide-react";
 import { TaskList } from "@/types";
 import { renderListIcon } from "./ListIconPicker";
@@ -22,6 +23,7 @@ interface ListDetailsPanelProps {
   stats?: { total: number; completed: number };
   onOpenList?: (list: TaskList) => void;
   onEdit?: (list: TaskList) => void;
+  onAdjustParent?: (list: TaskList) => void;
   onDelete?: (list: TaskList) => void;
 }
 
@@ -32,6 +34,7 @@ export function ListDetailsPanel({
   stats,
   onOpenList,
   onEdit,
+  onAdjustParent,
   onDelete,
 }: ListDetailsPanelProps) {
   if (!isOpen || !list) return null;
@@ -184,6 +187,19 @@ export function ListDetailsPanel({
               >
                 <Edit2 className="w-3.5 h-3.5 text-[#C5C0FF]" />
                 <span>Edit</span>
+              </button>
+            )}
+            {onAdjustParent && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onAdjustParent(list);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#161619] border border-[#1C1C20] hover:border-[#474556] text-[#E3E1EC] hover:text-white transition-colors"
+              >
+                <FolderTree className="w-3.5 h-3.5 text-[#C5C0FF]" />
+                <span>Adjust Parent</span>
               </button>
             )}
             {onDelete && (

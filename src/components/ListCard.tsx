@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { MoreVertical, Edit2, Trash2, Info, GripVertical, Check } from "lucide-react";
+import { MoreVertical, Edit2, Trash2, Info, GripVertical, Check, FolderTree } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { TaskList } from "@/types";
 import { renderListIcon } from "./ListIconPicker";
@@ -12,6 +12,7 @@ interface ListCardProps {
   completedItems: number;
   onClick: () => void;
   onEdit: () => void;
+  onAdjustParent?: () => void;
   onDelete: () => void;
   onShowDetails: () => void;
   isSelectionMode?: boolean;
@@ -26,6 +27,7 @@ export function ListCard({
   completedItems,
   onClick,
   onEdit,
+  onAdjustParent,
   onDelete,
   onShowDetails,
   isSelectionMode = false,
@@ -122,6 +124,15 @@ export function ListCard({
                 <Edit2 className="w-3.5 h-3.5 text-[#918EA2]" />
                 <span>Edit List</span>
               </DropdownMenu.Item>
+              {onAdjustParent && (
+                <DropdownMenu.Item
+                  onClick={onAdjustParent}
+                  className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#E3E1EC] hover:bg-[#252529] rounded-lg cursor-pointer outline-none"
+                >
+                  <FolderTree className="w-3.5 h-3.5 text-[#C5C0FF]" />
+                  <span>Adjust Parent</span>
+                </DropdownMenu.Item>
+              )}
               <DropdownMenu.Separator className="h-px bg-[#252529] my-1" />
               <DropdownMenu.Item
                 onClick={onDelete}

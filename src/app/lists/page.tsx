@@ -43,6 +43,7 @@ import { SelectionActionBar } from "@/components/SelectionActionBar";
 import { renderListIcon } from "@/components/ListIconPicker";
 import { ListItemDetailsPanel } from "@/components/ListItemDetailsPanel";
 import { ListDetailsPanel } from "@/components/ListDetailsPanel";
+import { AdjustParentListDialog } from "@/components/AdjustParentListDialog";
 import {
   AddMultipleItemsDialog,
   EditItemDialog,
@@ -82,6 +83,8 @@ export default function ListsPage() {
     deleteList,
     batchDeleteLists,
     reorderLists,
+    moveListIntoList,
+    moveListsIntoList,
     createItem,
     createMultipleItems,
     updateItem,
@@ -101,6 +104,8 @@ export default function ListsPage() {
   const [listToEdit, setListToEdit] = useState<TaskList | null>(null);
   const [listToDelete, setListToDelete] = useState<TaskList | null>(null);
   const [listForDetails, setListForDetails] = useState<TaskList | null>(null);
+  const [listToAdjustParent, setListToAdjustParent] = useState<TaskList | null>(null);
+  const [batchListsToAdjust, setBatchListsToAdjust] = useState<TaskList[] | null>(null);
 
   // Item Modals state
   const [quickItemTitle, setQuickItemTitle] = useState("");
@@ -394,6 +399,7 @@ export default function ListsPage() {
                               completedItems={stats.completed}
                               onClick={() => setSelectedListId(list.id)}
                               onEdit={() => setListToEdit(list)}
+                              onAdjustParent={() => setListToAdjustParent(list)}
                               onDelete={() => setListToDelete(list)}
                               onShowDetails={() => setListForDetails(list)}
                               isSelectionMode={isSelectionMode}
@@ -420,6 +426,10 @@ export default function ListsPage() {
                 <SelectionActionBar
                   selectedCount={selectedListIds.size}
                   onClear={clearSelection}
+                  onAdjustParent={() => {
+                    const sel = lists.filter((l) => selectedListIds.has(l.id));
+                    setBatchListsToAdjust(sel);
+                  }}
                   onDelete={() => batchDeleteLists(userCode, Array.from(selectedListIds))}
                 />
               )}
@@ -823,7 +833,40 @@ export default function ListsPage() {
               setListForDetails(null);
             }}
             onEdit={(l) => setListToEdit(l)}
+            onAdjustParent={(l) => setListToAdjustParent(l)}
             onDelete={(l) => setListToDelete(l)}
+          />
+
+          {/* Adjust Parent List Dialog (Single or Batch Lists) */}
+          <AdjustParentListDialog
+            open={!!listToAdjustParent || !!batchListsToAdjust}
+            onOpenChange={(open) => {
+              if (!open) {
+                setListToAdjustParent(null);
+                setBatchListsToAdjust(null);
+              }
+            }}
+            selectedLists={
+              batchListsToAdjust && batchListsToAdjust.length > 0
+                ? batchListsToAdjust
+                : listToAdjustParent
+                ? [listToAdjustParent]
+                : []
+            }
+            allLists={lists}
+            onConfirmMove={async (targetListId) => {
+              if (batchListsToAdjust && batchListsToAdjust.length > 0) {
+                await moveListsIntoList(
+                  userCode,
+                  batchListsToAdjust.map((l) => l.id),
+                  targetListId
+                );
+              } else if (listToAdjustParent) {
+                await moveListIntoList(userCode, listToAdjustParent.id, targetListId);
+              }
+              setListToAdjustParent(null);
+              setBatchListsToAdjust(null);
+            }}
           />
 
           {/* Adjust Item Parent Dialog */}

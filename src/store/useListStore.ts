@@ -24,6 +24,16 @@ interface ListStoreState {
   deleteList: (userCode: string, id: string) => Promise<void>;
   batchDeleteLists: (userCode: string, listIds: string[]) => Promise<void>;
   reorderLists: (userCode: string, reorderedLists: TaskList[]) => Promise<void>;
+  moveListIntoList: (
+    userCode: string,
+    sourceListId: string,
+    targetListId: string
+  ) => Promise<void>;
+  moveListsIntoList: (
+    userCode: string,
+    sourceListIds: string[],
+    targetListId: string
+  ) => Promise<void>;
 
   // List Item Actions
   createItem: (
@@ -346,6 +356,96 @@ export const useListStore = create<ListStoreState>((set, get) => ({
     for (const l of updated) {
       await supabase.from("task_lists").update({ position: l.position }).eq("id", l.id);
     }
+  },
+
+  moveListsIntoList: async (
+    userCode: string,
+    sourceListIds: string[],
+    targetListId: string
+  ) => {
+    const validSourceIds = sourceListIds.filter((id) => id !== targetListId);
+    if (validSourceIds.length === 0) return;
+
+    const currentLists = get().lists;
+    const targetList = currentLists.find((l) => l.id === targetListId);
+    if (!targetList) return;
+
+    const sourceLists = currentLists.filter((l) => validSourceIds.includes(l.id));
+    if (sourceLists.length === 0) return;
+
+    const currentItems = get().items;
+    const targetItems = currentItems.filter((i) => i.listId === targetListId);
+    let nextPosition = targetItems.length;
+    const now = Date.now();
+
+    const allNewParentItems: ListItem[] = [];
+    const allMigratedItems: ListItem[] = [];
+
+    sourceLists.forEach((sourceList) => {
+      const sourceItems = currentItems.filter((i) => i.listId === sourceList.id);
+      const parentItem: ListItem = {
+        id: crypto.randomUUID(),
+        userCode,
+        listId: targetListId,
+        parentId: null,
+        title: sourceList.name,
+        iconName: sourceList.iconName || "list",
+        notes: null,
+        targetDate: null,
+        targetDateMillis: null,
+        isCompleted: false,
+        position: nextPosition++,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      allNewParentItems.push(parentItem);
+
+      const migrated = sourceItems.map((item) => {
+        const newParentId = item.parentId === null ? parentItem.id : item.parentId;
+        return {
+          ...item,
+          listId: targetListId,
+          parentId: newParentId,
+          updatedAt: now,
+        };
+      });
+      allMigratedItems.push(...migrated);
+    });
+
+    const validSourceSet = new Set(validSourceIds);
+
+    // Update store state immediately
+    set((state) => ({
+      lists: state.lists.filter((l) => !validSourceSet.has(l.id)),
+      items: [
+        ...state.items.filter((i) => !validSourceSet.has(i.listId)),
+        ...allNewParentItems,
+        ...allMigratedItems,
+      ],
+      selectedListIds: new Set(),
+      isSelectionMode: false,
+    }));
+
+    // Sync to Supabase
+    const dtosToUpsert = [...allNewParentItems, ...allMigratedItems].map(itemDomainToDto);
+    if (dtosToUpsert.length > 0) {
+      const { error: upsertErr } = await supabase.from("list_items").upsert(dtosToUpsert);
+      if (upsertErr) {
+        console.error("Failed to upsert migrated list items:", upsertErr);
+      }
+    }
+    for (const sId of validSourceIds) {
+      await supabase.from("task_lists").delete().eq("id", sId);
+    }
+  },
+
+  moveListIntoList: async (
+    userCode: string,
+    sourceListId: string,
+    targetListId: string
+  ) => {
+    await get().moveListsIntoList(userCode, [sourceListId], targetListId);
   },
 
   // List Items
