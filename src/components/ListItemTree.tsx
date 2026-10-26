@@ -17,6 +17,7 @@ import {
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ListItem } from "@/types";
 import { renderListIcon } from "./ListIconPicker";
+import { ParentListItemCard } from "./ParentListItemCard";
 
 export interface ListItemRowProps {
   item: ListItem;
@@ -79,6 +80,27 @@ export function ListItemRow({
       onShowDetails(item);
     }
   };
+
+  if (hasSubtasks) {
+    return (
+      <ParentListItemCard
+        item={item}
+        totalSubtasks={subtaskStats?.total || 0}
+        completedSubtasks={subtaskStats?.completed || 0}
+        isSelectionMode={isSelectionMode}
+        isSelected={isSelected}
+        onToggleSelect={onToggleSelect}
+        onToggleCompletion={onToggleCompletion}
+        onDrillDown={() => onDrillDown?.(item)}
+        onShowDetails={onShowDetails}
+        onEditItem={onEditItem}
+        onAddSubtasks={onAddSubtasks}
+        onAdjustParent={onAdjustParent}
+        onDeleteItem={onDeleteItem}
+        dragHandleProps={dragHandleProps}
+      />
+    );
+  }
 
   return (
     <div

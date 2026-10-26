@@ -68,6 +68,24 @@ interface ListStoreState {
     itemIds: string[],
     newParentId: string | null
   ) => Promise<void>;
+  moveItemsToParent: (
+    userCode: string,
+    itemIds: string[],
+    targetListId: string,
+    newParentId: string | null,
+    moveSubtasks: boolean
+  ) => Promise<void>;
+  convertItemToStandaloneList: (
+    userCode: string,
+    itemId: string
+  ) => Promise<TaskList | null>;
+  convertLeafToParentWithSubtasks: (
+    userCode: string,
+    itemId: string,
+    updatedTitle: string,
+    updatedIconName: string,
+    subtaskTitles: string[]
+  ) => Promise<void>;
   reorderItems: (userCode: string, reorderedItems: ListItem[]) => Promise<void>;
 
   // Selection & UI
@@ -427,14 +445,26 @@ export const useListStore = create<ListStoreState>((set, get) => ({
       isSelectionMode: false,
     }));
 
-    // Sync to Supabase
-    const dtosToUpsert = [...allNewParentItems, ...allMigratedItems].map(itemDomainToDto);
-    if (dtosToUpsert.length > 0) {
-      const { error: upsertErr } = await supabase.from("list_items").upsert(dtosToUpsert);
-      if (upsertErr) {
-        console.error("Failed to upsert migrated list items:", upsertErr);
+    // Sync to Supabase:
+    // 1. Insert parent items FIRST so foreign keys can resolve
+    if (allNewParentItems.length > 0) {
+      const parentDtos = allNewParentItems.map(itemDomainToDto);
+      const { error: parentErr } = await supabase.from("list_items").insert(parentDtos);
+      if (parentErr) {
+        console.error("Failed to insert new parent items in Supabase:", parentErr);
       }
     }
+
+    // 2. Upsert migrated child items under the new parent items
+    if (allMigratedItems.length > 0) {
+      const migratedDtos = allMigratedItems.map(itemDomainToDto);
+      const { error: migratedErr } = await supabase.from("list_items").upsert(migratedDtos);
+      if (migratedErr) {
+        console.error("Failed to upsert migrated list items:", migratedErr);
+      }
+    }
+
+    // 3. Delete source task lists
     for (const sId of validSourceIds) {
       await supabase.from("task_lists").delete().eq("id", sId);
     }
@@ -803,6 +833,207 @@ export const useListStore = create<ListStoreState>((set, get) => ({
     for (const id of itemIds) {
       await supabase.from("list_items").update({ parent_id: newParentId, updated_at: Date.now() }).eq("id", id);
     }
+  },
+
+  convertLeafToParentWithSubtasks: async (
+    userCode: string,
+    itemId: string,
+    updatedTitle: string,
+    updatedIconName: string,
+    subtaskTitles: string[]
+  ) => {
+    const all = get().items;
+    const target = all.find((i) => i.id === itemId);
+    if (!target) return;
+
+    const now = Date.now();
+    const updatedItem: ListItem = {
+      ...target,
+      title: updatedTitle.trim(),
+      iconName: updatedIconName,
+      updatedAt: now,
+    };
+
+    const existingInList = all.filter((i) => i.listId === target.listId);
+    let nextPos = existingInList.length;
+
+    const newSubtasks: ListItem[] = subtaskTitles
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0)
+      .map((title, idx) => ({
+        id: crypto.randomUUID(),
+        userCode,
+        listId: target.listId,
+        parentId: itemId,
+        title,
+        iconName: "list",
+        notes: null,
+        targetDate: null,
+        targetDateMillis: null,
+        isCompleted: false,
+        position: nextPos + idx,
+        completedAt: null,
+        createdAt: now + idx,
+        updatedAt: now + idx,
+      }));
+
+    set((state) => ({
+      items: [
+        ...state.items.map((i) => (i.id === itemId ? updatedItem : i)),
+        ...newSubtasks,
+      ],
+    }));
+
+    await supabase
+      .from("list_items")
+      .update({
+        title: updatedItem.title,
+        icon_name: updatedItem.iconName,
+        updated_at: now,
+      })
+      .eq("id", itemId);
+
+    if (newSubtasks.length > 0) {
+      await supabase.from("list_items").insert(newSubtasks.map(itemDomainToDto));
+    }
+  },
+
+  moveItemsToParent: async (
+    userCode: string,
+    itemIds: string[],
+    targetListId: string,
+    newParentId: string | null,
+    moveSubtasks: boolean
+  ) => {
+    if (itemIds.length === 0) return;
+    const all = get().items;
+    const now = Date.now();
+    const itemSet = new Set(itemIds);
+
+    // If moveSubtasks, get all descendants
+    const allMovedIds = new Set<string>();
+    for (const id of itemIds) {
+      allMovedIds.add(id);
+      if (moveSubtasks) {
+        for (const d of getItemDescendantIds(id, all)) {
+          allMovedIds.add(d);
+        }
+      }
+    }
+
+    const updated = all.map((item) => {
+      if (itemSet.has(item.id)) {
+        return {
+          ...item,
+          listId: targetListId,
+          parentId: newParentId,
+          updatedAt: now,
+        };
+      }
+      if (allMovedIds.has(item.id)) {
+        return {
+          ...item,
+          listId: targetListId,
+          updatedAt: now,
+        };
+      }
+      if (!moveSubtasks && item.parentId && itemSet.has(item.parentId)) {
+        const origParent = all.find((p) => p.id === item.parentId)?.parentId || null;
+        return {
+          ...item,
+          parentId: origParent,
+          updatedAt: now,
+        };
+      }
+      return item;
+    });
+
+    set({
+      items: updated,
+      selectedItemIds: new Set(),
+      isSelectionMode: false,
+    });
+
+    const changedItems = updated.filter((i) => allMovedIds.has(i.id));
+    for (const itm of changedItems) {
+      await supabase
+        .from("list_items")
+        .update({
+          list_id: itm.listId,
+          parent_id: itm.parentId,
+          updated_at: now,
+        })
+        .eq("id", itm.id);
+    }
+  },
+
+  convertItemToStandaloneList: async (userCode: string, itemId: string) => {
+    const all = get().items;
+    const target = all.find((i) => i.id === itemId);
+    if (!target) return null;
+
+    const now = Date.now();
+    const currentLists = get().lists;
+    const sourceListIndex = currentLists.findIndex((l) => l.id === target.listId);
+    const insertPos = sourceListIndex !== -1 ? sourceListIndex + 1 : currentLists.length;
+
+    const newList: TaskList = {
+      id: crypto.randomUUID(),
+      userCode,
+      name: target.title,
+      iconName: target.iconName || "list",
+      position: insertPos,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const descendantIds = getItemDescendantIds(itemId, all);
+
+    const updatedLists = [...currentLists];
+    updatedLists.splice(insertPos, 0, newList);
+    const reorderedLists = updatedLists.map((l, idx) => ({ ...l, position: idx }));
+
+    const newItems = all
+      .filter((i) => i.id !== itemId)
+      .map((item) => {
+        if (descendantIds.has(item.id)) {
+          const newParentId = item.parentId === itemId ? null : item.parentId;
+          return {
+            ...item,
+            listId: newList.id,
+            parentId: newParentId,
+            updatedAt: now,
+          };
+        }
+        return item;
+      });
+
+    set({
+      lists: reorderedLists,
+      items: newItems,
+    });
+
+    // Supabase sync
+    await supabase.from("task_lists").insert(listDomainToDto(newList));
+    await supabase.from("list_items").delete().eq("id", itemId);
+
+    const migrated = newItems.filter((i) => descendantIds.has(i.id));
+    for (const m of migrated) {
+      await supabase
+        .from("list_items")
+        .update({
+          list_id: m.listId,
+          parent_id: m.parentId,
+          updated_at: now,
+        })
+        .eq("id", m.id);
+    }
+
+    for (const l of reorderedLists) {
+      await supabase.from("task_lists").update({ position: l.position }).eq("id", l.id);
+    }
+
+    return newList;
   },
 
   reorderItems: async (userCode: string, reorderedItems: ListItem[]) => {

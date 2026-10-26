@@ -13,6 +13,7 @@ import {
   Edit2,
   Trash2,
   ListTodo,
+  FolderTree,
 } from "lucide-react";
 import { ListItem } from "@/types";
 import { renderListIcon } from "./ListIconPicker";
@@ -25,6 +26,7 @@ interface ListItemDetailsPanelProps {
   parentTitle?: string | null;
   subtaskStats?: { total: number; completed: number };
   onEdit?: (item: ListItem) => void;
+  onAdjustParent?: (item: ListItem) => void;
   onDelete?: (item: ListItem) => void;
 }
 
@@ -36,6 +38,7 @@ export function ListItemDetailsPanel({
   parentTitle,
   subtaskStats,
   onEdit,
+  onAdjustParent,
   onDelete,
 }: ListItemDetailsPanelProps) {
   if (!isOpen || !item) return null;
@@ -216,6 +219,19 @@ export function ListItemDetailsPanel({
               >
                 <Edit2 className="w-3.5 h-3.5 text-[#C5C0FF]" />
                 <span>Edit</span>
+              </button>
+            )}
+            {onAdjustParent && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onAdjustParent(item);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-[#161619] border border-[#1C1C20] hover:border-[#474556] text-[#FFB77D] hover:text-white transition-colors"
+              >
+                <FolderTree className="w-3.5 h-3.5 text-[#FFB77D]" />
+                <span>Adjust Parent</span>
               </button>
             )}
             {onDelete && (

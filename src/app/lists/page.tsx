@@ -14,6 +14,7 @@ import {
   ChevronRight,
   CheckCircle2,
   FileText,
+  FolderTree,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -44,10 +45,11 @@ import { renderListIcon } from "@/components/ListIconPicker";
 import { ListItemDetailsPanel } from "@/components/ListItemDetailsPanel";
 import { ListDetailsPanel } from "@/components/ListDetailsPanel";
 import { AdjustParentListDialog } from "@/components/AdjustParentListDialog";
+import { AddSubtasksToLeafDialog } from "@/components/AddSubtasksToLeafDialog";
+import { AdjustItemParentDialog } from "@/components/AdjustItemParentDialog";
 import {
   AddMultipleItemsDialog,
   EditItemDialog,
-  AdjustItemParentDialog,
   DeleteItemDialog,
 } from "@/components/ListItemDialogs";
 
@@ -94,6 +96,9 @@ export default function ListsPage() {
     batchCompleteItems,
     adjustItemParent,
     batchAdjustItemParent,
+    moveItemsToParent,
+    convertItemToStandaloneList,
+    convertLeafToParentWithSubtasks,
     reorderItems,
   } = useListStore();
 
@@ -110,10 +115,12 @@ export default function ListsPage() {
   // Item Modals state
   const [quickItemTitle, setQuickItemTitle] = useState("");
   const [addMultipleOpen, setAddMultipleOpen] = useState(false);
+  const [leafItemForAddSubtasks, setLeafItemForAddSubtasks] = useState<ListItem | null>(null);
   const [parentForSubtasks, setParentForSubtasks] = useState<ListItem | null>(null);
   const [itemToEdit, setItemToEdit] = useState<ListItem | null>(null);
   const [itemForDetails, setItemForDetails] = useState<ListItem | null>(null);
   const [itemForAdjustParent, setItemForAdjustParent] = useState<ListItem | null>(null);
+  const [batchItemsToAdjust, setBatchItemsToAdjust] = useState<ListItem[] | null>(null);
   const [itemToDelete, setItemToDelete] = useState<ListItem | null>(null);
 
   // Breadcrumb navigation stack for infinite hierarchy drill-down
@@ -536,6 +543,15 @@ export default function ListsPage() {
                           </DropdownMenu.Item>
                           <DropdownMenu.Item
                             onClick={() => {
+                              if (currentList) setListToAdjustParent(currentList);
+                            }}
+                            className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#FFB77D] rounded-lg cursor-pointer outline-none transition-colors"
+                          >
+                            <FolderTree className="w-3.5 h-3.5 text-[#FFB77D]" />
+                            <span>Adjust Parent List</span>
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item
+                            onClick={() => {
                               if (isSelectionMode) exitSelectionMode();
                               else enterSelectionMode();
                             }}
@@ -671,8 +687,13 @@ export default function ListsPage() {
                                 onShowDetails={setItemForDetails}
                                 onEditItem={setItemToEdit}
                                 onAddSubtasks={(parent) => {
-                                  setParentForSubtasks(parent);
-                                  setAddMultipleOpen(true);
+                                  const subCount = subtaskStatsMap.get(parent.id)?.total || 0;
+                                  if (subCount === 0) {
+                                    setLeafItemForAddSubtasks(parent);
+                                  } else {
+                                    setParentForSubtasks(parent);
+                                    setAddMultipleOpen(true);
+                                  }
                                 }}
                                 onAdjustParent={setItemForAdjustParent}
                                 onDeleteItem={setItemToDelete}
@@ -722,8 +743,13 @@ export default function ListsPage() {
                                 onShowDetails={setItemForDetails}
                                 onEditItem={setItemToEdit}
                                 onAddSubtasks={(parent) => {
-                                  setParentForSubtasks(parent);
-                                  setAddMultipleOpen(true);
+                                  const subCount = subtaskStatsMap.get(parent.id)?.total || 0;
+                                  if (subCount === 0) {
+                                    setLeafItemForAddSubtasks(parent);
+                                  } else {
+                                    setParentForSubtasks(parent);
+                                    setAddMultipleOpen(true);
+                                  }
                                 }}
                                 onAdjustParent={setItemForAdjustParent}
                                 onDeleteItem={setItemToDelete}
@@ -746,8 +772,8 @@ export default function ListsPage() {
                     batchCompleteItems(userCode, Array.from(selectedItemIds))
                   }
                   onAdjustParent={() => {
-                    const first = currentListItems.find((i) => selectedItemIds.has(i.id)) || null;
-                    setItemForAdjustParent(first);
+                    const selItems = currentListItems.filter((i) => selectedItemIds.has(i.id));
+                    setBatchItemsToAdjust(selItems);
                   }}
                   onDelete={() =>
                     batchDeleteItems(userCode, Array.from(selectedItemIds))
@@ -819,6 +845,7 @@ export default function ListsPage() {
               itemForDetails ? subtaskStatsMap.get(itemForDetails.id) : undefined
             }
             onEdit={(it) => setItemToEdit(it)}
+            onAdjustParent={(it) => setItemForAdjustParent(it)}
             onDelete={(it) => setItemToDelete(it)}
           />
 
@@ -869,18 +896,62 @@ export default function ListsPage() {
             }}
           />
 
-          {/* Adjust Item Parent Dialog */}
-          <AdjustItemParentDialog
-            open={!!itemForAdjustParent}
-            onOpenChange={(open) => !open && setItemForAdjustParent(null)}
-            item={itemForAdjustParent}
-            allItemsInList={currentListItems}
-            onConfirm={async (newParentId, moveChildren) => {
-              if (isSelectionMode && selectedItemIds.size > 1) {
-                await batchAdjustItemParent(userCode, Array.from(selectedItemIds), newParentId);
-              } else if (itemForAdjustParent) {
-                await adjustItemParent(userCode, itemForAdjustParent.id, newParentId, moveChildren);
+          {/* Add Subtasks To Leaf Item Dialog (promotes leaf item to parent item with icon + subtasks) */}
+          <AddSubtasksToLeafDialog
+            open={!!leafItemForAddSubtasks}
+            onOpenChange={(open) => !open && setLeafItemForAddSubtasks(null)}
+            leafItem={leafItemForAddSubtasks}
+            onConfirm={async (updatedTitle, updatedIconName, subtasks) => {
+              if (leafItemForAddSubtasks) {
+                await convertLeafToParentWithSubtasks(
+                  userCode,
+                  leafItemForAddSubtasks.id,
+                  updatedTitle,
+                  updatedIconName,
+                  subtasks
+                );
+                setLeafItemForAddSubtasks(null);
               }
+            }}
+          />
+
+          {/* Adjust Item Parent Dialog (Single or Batch Items, In-list or Cross-list) */}
+          <AdjustItemParentDialog
+            open={!!itemForAdjustParent || !!batchItemsToAdjust}
+            onOpenChange={(open) => {
+              if (!open) {
+                setItemForAdjustParent(null);
+                setBatchItemsToAdjust(null);
+              }
+            }}
+            item={itemForAdjustParent}
+            itemsToMove={batchItemsToAdjust || undefined}
+            allLists={lists}
+            allItems={items}
+            currentListId={selectedListId || ""}
+            onConfirmMove={async (targetListId, newParentId, moveSubtasks) => {
+              const targetItems =
+                batchItemsToAdjust && batchItemsToAdjust.length > 0
+                  ? batchItemsToAdjust
+                  : itemForAdjustParent
+                  ? [itemForAdjustParent]
+                  : [];
+              if (targetItems.length > 0) {
+                await moveItemsToParent(
+                  userCode,
+                  targetItems.map((i) => i.id),
+                  targetListId,
+                  newParentId,
+                  moveSubtasks
+                );
+              }
+              setItemForAdjustParent(null);
+              setBatchItemsToAdjust(null);
+              if (isSelectionMode) clearSelection();
+            }}
+            onConvertToStandalone={async (itemId) => {
+              await convertItemToStandaloneList(userCode, itemId);
+              setItemForAdjustParent(null);
             }}
           />
 
