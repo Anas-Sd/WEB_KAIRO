@@ -103,9 +103,9 @@ export default function TasksPage() {
 
   const userCode = user?.code || "";
 
-  // 1. Filter and search tasks
+  // 1. Filter and search tasks (exclude recurrence historical snapshots)
   const filteredTasks = useMemo(() => {
-    let result = [...tasks];
+    let result = tasks.filter((t) => !t.id.startsWith("snapshot_"));
 
     // Search query: filters across all levels
     if (searchQuery.trim()) {

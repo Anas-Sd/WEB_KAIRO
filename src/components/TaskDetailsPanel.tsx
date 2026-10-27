@@ -19,7 +19,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Task } from "@/types";
-import { formatRemainingTime, calculateTriggerMillis } from "@/lib/dateUtils";
+import { formatRemainingTime, calculateTriggerMillis, formatDisplayDate } from "@/lib/dateUtils";
+import { useTaskStore } from "@/store/useTaskStore";
 
 interface TaskDetailsPanelProps {
   task: Task | null;
@@ -41,6 +42,15 @@ export function TaskDetailsPanel({
   onSnooze,
 }: TaskDetailsPanelProps) {
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
+  const { tasks } = useTaskStore();
+
+  const recurrenceSnapshots = React.useMemo(() => {
+    if (!task) return [];
+    return tasks
+      .filter((t) => t.id.startsWith(`snapshot_${task.id}_`))
+      .sort((a, b) => (b.dueDateMillis || b.createdAt) - (a.dueDateMillis || a.createdAt));
+  }, [task, tasks]);
+  const isRepeating = !!task?.repeatType && task?.repeatType !== "NONE";
 
   if (!isOpen || !task) return null;
 
@@ -201,6 +211,82 @@ export function TaskDetailsPanel({
               <p className="text-[11px] text-[#918EA2] italic">
                 * Automatically creates next recurring task when completed.
               </p>
+            </div>
+          )}
+
+          {/* Recurrence History (Completed vs Missed) */}
+          {(isRepeating || recurrenceSnapshots.length > 0) && (
+            <div className="p-4 rounded-xl bg-[#161619] border border-[#1C1C20] space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-[#918EA2] uppercase tracking-wider block">
+                  Recurrence History
+                </span>
+                {recurrenceSnapshots.length > 0 && (
+                  <span className="text-[10px] text-[#C5C0FF] bg-[#C5C0FF]/10 px-2 py-0.5 rounded-full font-medium">
+                    {recurrenceSnapshots.length} past record{recurrenceSnapshots.length !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {/* Current Active Schedule */}
+                <div className="flex items-center justify-between p-2.5 rounded-lg bg-[#1C1C20] border border-[#35343E]/40">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-2 h-2 rounded-full bg-[#68DBA9] shrink-0 animate-pulse" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-[#E3E1EC] truncate">
+                        {formatDisplayDate(task.dueDate, task.dueDateMillis)}
+                        {task.dueTime && ` • ${task.dueTime}`}
+                      </p>
+                      <p className="text-[10px] text-[#918EA2]">Current Schedule</p>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#68DBA9]/15 text-[#68DBA9] shrink-0">
+                    {task.isCompleted ? "COMPLETED" : "ACTIVE"}
+                  </span>
+                </div>
+
+                {/* Past Snapshots */}
+                {recurrenceSnapshots.map((snap) => {
+                  const isDone = snap.isCompleted;
+                  return (
+                    <div
+                      key={snap.id}
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-[#111114] border border-[#1C1C20]"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`w-2 h-2 rounded-full shrink-0 ${
+                            isDone ? "bg-[#68DBA9]" : "bg-[#EF4444]"
+                          }`}
+                        />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-[#E3E1EC] truncate">
+                            {formatDisplayDate(snap.dueDate, snap.dueDateMillis)}
+                            {snap.dueTime && ` • ${snap.dueTime}`}
+                          </p>
+                          <p className="text-[10px] text-[#918EA2]">
+                            {isDone
+                              ? snap.completedAt
+                                ? `Completed at ${format(new Date(snap.completedAt), "h:mm a")}`
+                                : "Completed"
+                              : "Missed"}
+                          </p>
+                        </div>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                          isDone
+                            ? "bg-[#68DBA9]/15 text-[#68DBA9]"
+                            : "bg-[#EF4444]/15 text-[#EF4444]"
+                        }`}
+                      >
+                        {isDone ? "DONE" : "MISSED"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

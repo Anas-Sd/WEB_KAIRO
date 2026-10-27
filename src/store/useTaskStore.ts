@@ -1,13 +1,7 @@
 import { create } from "zustand";
-import {
-  Task,
-  TaskDto,
-  TaskSection,
-  Priority,
-  RepeatType,
-  ToneOption,
-} from "@/types";
+import { Task, TaskDto, TaskSection, Priority, RepeatType, ToneOption } from "@/types";
 import { supabase } from "@/lib/supabase";
+import { startOfDay } from "date-fns";
 import {
   formatDisplayDate,
   parseDueDateMillis,
@@ -69,6 +63,7 @@ interface TaskStoreState {
   reorderTasks: (userCode: string, reorderedTasks: Task[]) => Promise<void>;
   snoozeTask: (userCode: string, taskId: string, minutes: number) => Promise<void>;
   reactivateForToday: (userCode: string, taskId: string) => Promise<void>;
+  processOverdueRecurringTasks: (userCode: string) => Promise<void>;
 
   // UI state actions
   toggleSection: (section: TaskSection) => void;
@@ -239,6 +234,9 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
         isLoading: false,
         ...(tonesChanged ? { recentTones: nextRecentTones } : {}),
       });
+
+      // Automatically inspect and roll over any overdue recurring tasks from past days
+      get().processOverdueRecurringTasks(userCode).catch(() => {});
     } catch (err: unknown) {
       set({
         error: err instanceof Error ? err.message : "Failed to load tasks",
@@ -448,22 +446,33 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
           target.repeatDates
         );
         if (nextRepeat) {
-          const newRecurringTask: Task = {
+          const snapshotId = `snapshot_${target.id}_${now}`;
+          const completedSnapshot: Task = {
             ...target,
-            id: crypto.randomUUID(),
-            isCompleted: false,
-            completedAt: null,
-            dueDate: nextRepeat.nextDueDate,
-            dueDateMillis: nextRepeat.nextDueDateMillis,
-            section: "TODAY",
-            createdAt: now,
+            id: snapshotId,
+            isCompleted: true,
+            completedAt: now,
+            section: "COMPLETED",
+            repeatType: null,
             updatedAt: now,
-            snoozeUntilMillis: null,
           };
-          byId.set(newRecurringTask.id, newRecurringTask);
-          // Persist the recurring task
-          const dto = taskToDto(newRecurringTask, userCode);
-          supabase.from("tasks").insert(dto).then();
+
+          // Roll over master task to next occurrence
+          target.dueDate = nextRepeat.nextDueDate;
+          target.dueDateMillis = nextRepeat.nextDueDateMillis;
+          target.isCompleted = false;
+          target.completedAt = null;
+          target.section = "TODAY";
+          target.updatedAt = now;
+
+          byId.set(snapshotId, completedSnapshot);
+          byId.set(target.id, target);
+
+          // Persist both snapshot and master task
+          const snapDto = taskToDto(completedSnapshot, userCode);
+          const masterDto = taskToDto(target, userCode);
+          supabase.from("tasks").insert(snapDto).then();
+          supabase.from("tasks").update(masterDto).eq("id", target.id).then();
         }
       }
     } else {
@@ -733,12 +742,109 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
   reactivateForToday: async (userCode: string, taskId: string) => {
     const today = formatDisplayDate(null, Date.now());
+    const snapshotPrefix = `snapshot_${taskId}_`;
+    const all = get().tasks;
+    const snapshotsToRemove = all.filter((t) => t.id.startsWith(snapshotPrefix));
+
+    set((state) => ({
+      tasks: state.tasks
+        .filter((t) => !t.id.startsWith(snapshotPrefix))
+        .map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                dueDate: today,
+                dueDateMillis: Date.now(),
+                section: "TODAY",
+                snoozeUntilMillis: null,
+                isCompleted: false,
+                completedAt: null,
+                updatedAt: Date.now(),
+              }
+            : t
+        ),
+    }));
+
     await get().updateTask(userCode, taskId, {
       dueDate: today,
       dueDateMillis: Date.now(),
       section: "TODAY",
       snoozeUntilMillis: null,
+      isCompleted: false,
+      completedAt: null,
     });
+
+    for (const snap of snapshotsToRemove) {
+      await supabase.from("tasks").delete().eq("id", snap.id);
+    }
+  },
+
+  processOverdueRecurringTasks: async (userCode: string) => {
+    if (!userCode) return;
+    const all = get().tasks;
+    const now = Date.now();
+    const todayStart = startOfDay(new Date()).getTime();
+
+    const overdueRecurring = all.filter(
+      (t) =>
+        !t.isCompleted &&
+        !t.id.startsWith("snapshot_") &&
+        t.repeatType &&
+        t.repeatType !== "NONE" &&
+        (t.dueDateMillis || parseDueDateMillis(t.dueDate)) < todayStart
+    );
+
+    if (overdueRecurring.length === 0) return;
+
+    const newSnapshots: Task[] = [];
+    const updatedMasters: Task[] = [];
+
+    for (const target of overdueRecurring) {
+      const pastMillis = target.dueDateMillis || parseDueDateMillis(target.dueDate);
+      const snapshotId = `snapshot_${target.id}_${pastMillis}`;
+
+      if (!all.some((t) => t.id === snapshotId) && !newSnapshots.some((t) => t.id === snapshotId)) {
+        const missedSnapshot: Task = {
+          ...target,
+          id: snapshotId,
+          isCompleted: false,
+          completedAt: null,
+          dueDate: target.dueDate.toLowerCase().includes("snoozed")
+            ? formatDisplayDate(null, pastMillis)
+            : target.dueDate,
+          section: "COMPLETED",
+          repeatType: null,
+          notes: target.notes ? `[MISSED] ${target.notes}` : "[MISSED]",
+          updatedAt: now,
+        };
+        newSnapshots.push(missedSnapshot);
+      }
+
+      const rolledOver: Task = {
+        ...target,
+        dueDate: "Today",
+        dueDateMillis: todayStart,
+        section: "TODAY",
+        snoozeUntilMillis: null,
+        isCompleted: false,
+        completedAt: null,
+        updatedAt: now,
+      };
+      updatedMasters.push(rolledOver);
+    }
+
+    const masterMap = new Map(updatedMasters.map((m) => [m.id, m]));
+    const updatedAll = all.map((t) => masterMap.get(t.id) || t);
+    updatedAll.push(...newSnapshots);
+
+    set({ tasks: updatedAll });
+
+    for (const snap of newSnapshots) {
+      await supabase.from("tasks").insert(taskToDto(snap, userCode));
+    }
+    for (const m of updatedMasters) {
+      await supabase.from("tasks").update(taskToDto(m, userCode)).eq("id", m.id);
+    }
   },
 
   toggleSection: (section: TaskSection) => {

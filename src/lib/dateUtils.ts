@@ -197,6 +197,104 @@ export function calculateTriggerMillis(
   return dateObj.getTime();
 }
 
+/**
+ * Calculates the next future occurrence timestamp for a recurring task.
+ * Ensures that recurring reminders are always scheduled ahead even if past instances were not completed.
+ */
+export function calculateNextFutureTriggerMillis(
+  dueTime?: string | null,
+  repeatType?: RepeatType,
+  repeatDays?: string | null,
+  repeatDates?: string | null,
+  now = Date.now()
+): number | null {
+  if (!repeatType || repeatType === "NONE") return null;
+
+  let targetHour = 9;
+  let targetMinute = 0;
+
+  if (dueTime && dueTime.trim().length > 0) {
+    const cleanTime = dueTime.trim();
+    const formats = ["hh:mm a", "h:mm a", "HH:mm", "H:mm"];
+    let parsed = false;
+
+    for (const fmt of formats) {
+      try {
+        const timeDate = parse(cleanTime, fmt, new Date());
+        if (isValid(timeDate)) {
+          targetHour = timeDate.getHours();
+          targetMinute = timeDate.getMinutes();
+          parsed = true;
+          break;
+        }
+      } catch {}
+    }
+
+    if (!parsed) {
+      const upper = cleanTime.toUpperCase();
+      const isPM = upper.includes("PM");
+      const isAM = upper.includes("AM");
+      const digitsOnly = cleanTime.replace(/[^0-9:]/g, "");
+      const parts = digitsOnly.split(":");
+      if (parts.length >= 2) {
+        let h = parseInt(parts[0], 10) || 9;
+        const m = parseInt(parts[1], 10) || 0;
+        if (isPM && h < 12) h += 12;
+        else if (isAM && h === 12) h = 0;
+        targetHour = h;
+        targetMinute = m;
+      }
+    }
+  }
+
+  // Today candidate
+  const candidate = new Date(now);
+  candidate.setHours(targetHour, targetMinute, 0, 0);
+
+  // If today's time has already elapsed, start searching from tomorrow
+  let startCandidate = candidate.getTime() <= now ? addDays(candidate, 1) : candidate;
+
+  const upperType = repeatType.toUpperCase();
+
+  if (upperType === "EVERYDAY" || upperType === "DAILY") {
+    return startCandidate.getTime();
+  }
+
+  if (upperType === "DAYS") {
+    const dayMap: Record<string, number> = {
+      SUN: 0,
+      MON: 1,
+      TUE: 2,
+      WED: 3,
+      THU: 4,
+      FRI: 5,
+      SAT: 6,
+    };
+    const targetDays = new Set(
+      (repeatDays || "")
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .map((s) => dayMap[s])
+        .filter((n) => n !== undefined)
+    );
+
+    if (targetDays.size === 0 || targetDays.size === 7) {
+      return startCandidate.getTime();
+    }
+
+    let searchCal = new Date(startCandidate);
+    for (let i = 0; i <= 14; i++) {
+      if (targetDays.has(searchCal.getDay())) {
+        return searchCal.getTime();
+      }
+      searchCal = addDays(searchCal, 1);
+    }
+    return startCandidate.getTime();
+  }
+
+  return startCandidate.getTime();
+}
+
 export function formatRemainingTime(
   targetMillis: number,
   now = Date.now()
@@ -381,6 +479,18 @@ export function getTaskAlarmTargetMillis(task: Task, now = Date.now()): number |
   const trigger = calculateTriggerMillis(task.dueDate, task.dueTime, task.dueDateMillis);
   if (trigger && trigger > now) {
     return trigger;
+  }
+  if (task.repeatType && task.repeatType !== "NONE") {
+    const nextFuture = calculateNextFutureTriggerMillis(
+      task.dueTime,
+      task.repeatType,
+      task.repeatDays,
+      task.repeatDates,
+      now
+    );
+    if (nextFuture && nextFuture > now) {
+      return nextFuture;
+    }
   }
   return null;
 }
