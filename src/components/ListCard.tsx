@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { MoreVertical, Edit2, Trash2, Info, GripVertical, Check, FolderTree } from "lucide-react";
+import { MoreVertical, Edit2, Trash2, Info, GripVertical, Check, FolderTree, Lock, Unlock } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { TaskList } from "@/types";
 import { renderListIcon } from "./ListIconPicker";
@@ -10,11 +10,13 @@ interface ListCardProps {
   list: TaskList;
   totalItems: number;
   completedItems: number;
+  isLocked?: boolean;
   onClick: () => void;
   onEdit: () => void;
   onAdjustParent?: () => void;
   onDelete: () => void;
   onShowDetails: () => void;
+  onToggleLock: () => void;
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
@@ -25,11 +27,13 @@ export function ListCard({
   list,
   totalItems,
   completedItems,
+  isLocked = false,
   onClick,
   onEdit,
   onAdjustParent,
   onDelete,
   onShowDetails,
+  onToggleLock,
   isSelectionMode = false,
   isSelected = false,
   onToggleSelect,
@@ -43,6 +47,8 @@ export function ListCard({
       className={`relative flex flex-col justify-between p-4 rounded-2xl bg-[#161619] border transition-all duration-200 cursor-pointer ${
         isSelected
           ? "border-[#C5C0FF] bg-[#1C1C20]"
+          : isLocked
+          ? "border-[#5A45FF]/30 hover:border-[#5A45FF]/60 hover:bg-[#1A1A1E]"
           : "border-[#474556]/20 hover:border-[#474556]/50 hover:bg-[#1A1A1E]"
       }`}
     >
@@ -77,14 +83,24 @@ export function ListCard({
           )}
 
           {/* Icon badge */}
-          <div className="w-9 h-9 rounded-xl bg-[#252529] border border-[#474556]/30 flex items-center justify-center text-[#C5C0FF] shrink-0">
+          <div className="relative w-9 h-9 rounded-xl bg-[#252529] border border-[#474556]/30 flex items-center justify-center text-[#C5C0FF] shrink-0">
             {renderListIcon(list.iconName, "w-4 h-4")}
+            {isLocked && (
+              <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#5A45FF] flex items-center justify-center text-white shadow">
+                <Lock className="w-2.5 h-2.5" />
+              </span>
+            )}
           </div>
 
           <div className="truncate">
-            <h3 className="text-sm font-bold text-white truncate">{list.name}</h3>
+            <div className="flex items-center gap-1.5 truncate">
+              <h3 className="text-sm font-bold text-white truncate">{list.name}</h3>
+              {isLocked && <Lock className="w-3 h-3 text-[#C5C0FF] shrink-0" />}
+            </div>
             <span className="text-[11px] text-[#918EA2]">
-              {totalItems === 0
+              {isLocked
+                ? "Locked with PIN"
+                : totalItems === 0
                 ? "No items yet"
                 : `${completedItems}/${totalItems} completed`}
             </span>
@@ -117,6 +133,24 @@ export function ListCard({
                 <Info className="w-3.5 h-3.5 text-[#918EA2]" />
                 <span>Details</span>
               </DropdownMenu.Item>
+
+              <DropdownMenu.Item
+                onClick={onToggleLock}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#E3E1EC] hover:bg-[#252529] rounded-lg cursor-pointer outline-none"
+              >
+                {isLocked ? (
+                  <>
+                    <Unlock className="w-3.5 h-3.5 text-[#68DBA9]" />
+                    <span>Unlock List</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3.5 h-3.5 text-[#C5C0FF]" />
+                    <span>Lock List</span>
+                  </>
+                )}
+              </DropdownMenu.Item>
+
               <DropdownMenu.Item
                 onClick={onEdit}
                 className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#E3E1EC] hover:bg-[#252529] rounded-lg cursor-pointer outline-none"
@@ -133,14 +167,18 @@ export function ListCard({
                   <span>Adjust Parent</span>
                 </DropdownMenu.Item>
               )}
-              <DropdownMenu.Separator className="h-px bg-[#252529] my-1" />
-              <DropdownMenu.Item
-                onClick={onDelete}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#FFB4AB] hover:bg-[#93000A]/30 rounded-lg cursor-pointer outline-none font-medium"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-[#FFB4AB]" />
-                <span>Delete List</span>
-              </DropdownMenu.Item>
+              {!isLocked && (
+                <>
+                  <DropdownMenu.Separator className="h-px bg-[#252529] my-1" />
+                  <DropdownMenu.Item
+                    onClick={onDelete}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs text-[#FFB4AB] hover:bg-[#93000A]/30 rounded-lg cursor-pointer outline-none font-medium"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-[#FFB4AB]" />
+                    <span>Delete List</span>
+                  </DropdownMenu.Item>
+                </>
+              )}
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
@@ -149,13 +187,17 @@ export function ListCard({
       {/* Progress Bar & percentage */}
       <div className="mt-4 pt-2 border-t border-[#1C1C20]/80">
         <div className="flex items-center justify-between text-[11px] text-[#918EA2] mb-1.5">
-          <span>Progress</span>
-          <span className="font-semibold text-white">{percent}%</span>
+          <span>{isLocked ? "Protected" : "Progress"}</span>
+          <span className="font-semibold text-white">{isLocked ? "🔒" : `${percent}%`}</span>
         </div>
         <div className="w-full h-1.5 rounded-full bg-[#111114] overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[#5A45FF] to-[#68DBA9] transition-all duration-300"
-            style={{ width: `${percent}%` }}
+            className={`h-full rounded-full transition-all duration-300 ${
+              isLocked
+                ? "bg-[#5A45FF]/40 w-full"
+                : "bg-gradient-to-r from-[#5A45FF] to-[#68DBA9]"
+            }`}
+            style={isLocked ? {} : { width: `${percent}%` }}
           />
         </div>
       </div>

@@ -52,6 +52,8 @@ import {
   EditItemDialog,
   DeleteItemDialog,
 } from "@/components/ListItemDialogs";
+import { PinDialog, PinDialogMode } from "@/components/PinDialog";
+import { Lock } from "lucide-react";
 
 import { useAuthStore } from "@/store/useAuthStore";
 import { useListStore } from "@/store/useListStore";
@@ -100,9 +102,29 @@ export default function ListsPage() {
     convertItemToStandaloneList,
     convertLeafToParentWithSubtasks,
     reorderItems,
+    lockedListPins,
+    unlockedListIds,
+    fetchListPins,
+    setListPin,
+    removeListPin,
+    unlockListTemporarily,
+    lockListAgain,
+    isListLocked,
   } = useListStore();
 
   const userCode = user?.code || "";
+
+  // PIN Lock Dialog State
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [pinDialogMode, setPinDialogMode] = useState<PinDialogMode>("SET_PIN");
+  const [pinTargetList, setPinTargetList] = useState<TaskList | null>(null);
+
+  // Fetch pins on mount
+  useEffect(() => {
+    if (userCode) {
+      fetchListPins(userCode);
+    }
+  }, [userCode, fetchListPins]);
 
   // Modals state
   const [createListOpen, setCreateListOpen] = useState(false);
@@ -398,17 +420,40 @@ export default function ListsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-24">
                         {filteredLists.map((list) => {
                           const stats = listStatsMap.get(list.id) || { total: 0, completed: 0 };
+                          const locked = isListLocked(list.id);
                           return (
                             <ListCard
                               key={list.id}
                               list={list}
                               totalItems={stats.total}
                               completedItems={stats.completed}
-                              onClick={() => setSelectedListId(list.id)}
+                              isLocked={locked}
+                              onClick={() => {
+                                if (locked) {
+                                  setPinTargetList(list);
+                                  setPinDialogMode("UNLOCK_TEMPORARY");
+                                  setPinDialogOpen(true);
+                                } else {
+                                  setSelectedListId(list.id);
+                                }
+                              }}
                               onEdit={() => setListToEdit(list)}
                               onAdjustParent={() => setListToAdjustParent(list)}
-                              onDelete={() => setListToDelete(list)}
+                              onDelete={() => {
+                                if (!locked) {
+                                  setListToDelete(list);
+                                }
+                              }}
                               onShowDetails={() => setListForDetails(list)}
+                              onToggleLock={() => {
+                                setPinTargetList(list);
+                                if (lockedListPins[list.id]) {
+                                  setPinDialogMode("REMOVE_PIN");
+                                } else {
+                                  setPinDialogMode("SET_PIN");
+                                }
+                                setPinDialogOpen(true);
+                              }}
                               isSelectionMode={isSelectionMode}
                               isSelected={selectedListIds.has(list.id)}
                               onToggleSelect={() => toggleSelectList(list.id)}
@@ -458,6 +503,9 @@ export default function ListsPage() {
                         } else if (itemBreadcrumbs.length > 0) {
                           setItemBreadcrumbs((prev) => prev.slice(0, -1));
                         } else {
+                          if (currentList) {
+                            lockListAgain(currentList.id);
+                          }
                           setSelectedListId(null);
                           setItemBreadcrumbs([]);
                         }
@@ -522,16 +570,18 @@ export default function ListsPage() {
                           sideOffset={6}
                           className="z-50 min-w-[180px] bg-[#1C1C20] border border-[#474556]/40 rounded-xl p-1 shadow-2xl animate-in fade-in-80"
                         >
-                          <DropdownMenu.Item
-                            onClick={() => {
-                              setParentForSubtasks(currentParent);
-                              setAddMultipleOpen(true);
-                            }}
-                            className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#C5C0FF] rounded-lg cursor-pointer outline-none transition-colors"
-                          >
-                            <Layers className="w-3.5 h-3.5 text-[#C5C0FF]" />
-                            <span>Add Multiple Items</span>
-                          </DropdownMenu.Item>
+                          {currentList && !isListLocked(currentList.id) && (
+                            <DropdownMenu.Item
+                              onClick={() => {
+                                setParentForSubtasks(currentParent);
+                                setAddMultipleOpen(true);
+                              }}
+                              className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#C5C0FF] rounded-lg cursor-pointer outline-none transition-colors"
+                            >
+                              <Layers className="w-3.5 h-3.5 text-[#C5C0FF]" />
+                              <span>Add Multiple Items</span>
+                            </DropdownMenu.Item>
+                          )}
                           <DropdownMenu.Item
                             onClick={() => {
                               if (currentList) setListForDetails(currentList);
@@ -550,6 +600,56 @@ export default function ListsPage() {
                             <FolderTree className="w-3.5 h-3.5 text-[#FFB77D]" />
                             <span>Adjust Parent List</span>
                           </DropdownMenu.Item>
+                          {currentList && isListLocked(currentList.id) && (
+                            <DropdownMenu.Item
+                              onClick={() => {
+                                setPinTargetList(currentList);
+                                setPinDialogMode("UNLOCK_TEMPORARY");
+                                setPinDialogOpen(true);
+                              }}
+                              className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#68DBA9] rounded-lg cursor-pointer outline-none transition-colors"
+                            >
+                              <Lock className="w-3.5 h-3.5 text-[#68DBA9]" />
+                              <span>Unlock List</span>
+                            </DropdownMenu.Item>
+                          )}
+                          {currentList && lockedListPins[currentList.id] && !isListLocked(currentList.id) && (
+                            <>
+                              <DropdownMenu.Item
+                                onClick={() => {
+                                  lockListAgain(currentList.id);
+                                }}
+                                className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#FFB77D] rounded-lg cursor-pointer outline-none transition-colors"
+                              >
+                                <Lock className="w-3.5 h-3.5 text-[#FFB77D]" />
+                                <span>Lock Now</span>
+                              </DropdownMenu.Item>
+                              <DropdownMenu.Item
+                                onClick={() => {
+                                  setPinTargetList(currentList);
+                                  setPinDialogMode("REMOVE_PIN");
+                                  setPinDialogOpen(true);
+                                }}
+                                className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#FFB4AB] rounded-lg cursor-pointer outline-none transition-colors"
+                              >
+                                <Lock className="w-3.5 h-3.5 text-[#FFB4AB]" />
+                                <span>Unlock Permanently</span>
+                              </DropdownMenu.Item>
+                            </>
+                          )}
+                          {currentList && !lockedListPins[currentList.id] && (
+                            <DropdownMenu.Item
+                              onClick={() => {
+                                setPinTargetList(currentList);
+                                setPinDialogMode("SET_PIN");
+                                setPinDialogOpen(true);
+                              }}
+                              className="flex items-center gap-2 px-3 py-2 text-xs text-[#E3E1EC] hover:bg-[#252529] hover:text-[#C5C0FF] rounded-lg cursor-pointer outline-none transition-colors"
+                            >
+                              <Lock className="w-3.5 h-3.5 text-[#C5C0FF]" />
+                              <span>Lock List</span>
+                            </DropdownMenu.Item>
+                          )}
                           <DropdownMenu.Item
                             onClick={() => {
                               if (isSelectionMode) exitSelectionMode();
@@ -581,42 +681,71 @@ export default function ListsPage() {
                   />
                 </div>
 
-                {/* Breadcrumb Navigation Bar */}
-                <div className="flex items-center gap-1.5 pt-2.5 pb-1 overflow-x-auto no-scrollbar">
+                {!currentList || !isListLocked(currentList.id) ? (
+                  /* Breadcrumb Navigation Bar */
+                  <div className="flex items-center gap-1.5 pt-2.5 pb-1 overflow-x-auto no-scrollbar">
+                    <button
+                      type="button"
+                      onClick={() => setItemBreadcrumbs([])}
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-colors flex items-center gap-1.5 shrink-0 ${
+                        itemBreadcrumbs.length === 0
+                          ? "bg-[#C5C0FF]/15 text-[#C5C0FF] font-bold"
+                          : "text-[#918EA2] hover:text-white hover:bg-[#161619]"
+                      }`}
+                    >
+                      <span>{currentList?.name}</span>
+                    </button>
+
+                    {itemBreadcrumbs.map((crumb, idx) => {
+                      const isLast = idx === itemBreadcrumbs.length - 1;
+                      return (
+                        <React.Fragment key={crumb.id}>
+                          <ChevronRight className="w-3.5 h-3.5 text-[#474556] shrink-0" />
+                          <button
+                            type="button"
+                            onClick={() => setItemBreadcrumbs(itemBreadcrumbs.slice(0, idx + 1))}
+                            className={`px-2.5 py-1 rounded-lg text-xs transition-colors truncate max-w-[160px] shrink-0 ${
+                              isLast
+                                ? "bg-[#C5C0FF]/15 text-[#C5C0FF] font-bold"
+                                : "text-[#918EA2] hover:text-white hover:bg-[#161619]"
+                            }`}
+                            title={crumb.title}
+                          >
+                            {crumb.title}
+                          </button>
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+
+              {currentList && isListLocked(currentList.id) ? (
+                <div className="flex-1 flex flex-col items-center justify-center py-20 px-4 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-[#5A45FF]/10 border border-[#5A45FF]/30 flex items-center justify-center text-[#C5C0FF] mb-4 shadow-lg shadow-[#5A45FF]/10">
+                    <Lock className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-1.5">
+                    {currentList.name} is Locked
+                  </h3>
+                  <p className="text-xs text-[#918EA2] max-w-sm mb-6 leading-relaxed">
+                    This list is protected with a PIN. Enter the PIN to view subtasks and manage items in this list.
+                  </p>
                   <button
                     type="button"
-                    onClick={() => setItemBreadcrumbs([])}
-                    className={`px-2.5 py-1 rounded-lg text-xs transition-colors flex items-center gap-1.5 shrink-0 ${
-                      itemBreadcrumbs.length === 0
-                        ? "bg-[#C5C0FF]/15 text-[#C5C0FF] font-bold"
-                        : "text-[#918EA2] hover:text-white hover:bg-[#161619]"
-                    }`}
+                    onClick={() => {
+                      setPinTargetList(currentList);
+                      setPinDialogMode("UNLOCK_TEMPORARY");
+                      setPinDialogOpen(true);
+                    }}
+                    className="px-6 py-2.5 rounded-xl bg-[#5A45FF] hover:bg-[#5A45FF]/90 text-white font-semibold text-xs flex items-center gap-2 transition-colors shadow-lg shadow-[#5A45FF]/20"
                   >
-                    <span>{currentList?.name}</span>
+                    <Lock className="w-4 h-4" />
+                    <span>Enter PIN to Unlock</span>
                   </button>
-
-                  {itemBreadcrumbs.map((crumb, idx) => {
-                    const isLast = idx === itemBreadcrumbs.length - 1;
-                    return (
-                      <React.Fragment key={crumb.id}>
-                        <ChevronRight className="w-3.5 h-3.5 text-[#474556] shrink-0" />
-                        <button
-                          type="button"
-                          onClick={() => setItemBreadcrumbs(itemBreadcrumbs.slice(0, idx + 1))}
-                          className={`px-2.5 py-1 rounded-lg text-xs transition-colors truncate max-w-[160px] shrink-0 ${
-                            isLast
-                              ? "bg-[#C5C0FF]/15 text-[#C5C0FF] font-bold"
-                              : "text-[#918EA2] hover:text-white hover:bg-[#161619]"
-                          }`}
-                          title={crumb.title}
-                        >
-                          {crumb.title}
-                        </button>
-                      </React.Fragment>
-                    );
-                  })}
                 </div>
-              </div>
+              ) : (
+                <>
 
               {/* Inline Quick Add Item */}
               <form onSubmit={handleQuickAddItem} className="mt-3 mb-4">
@@ -779,6 +908,8 @@ export default function ListsPage() {
                     batchDeleteItems(userCode, Array.from(selectedItemIds))
                   }
                 />
+              )}
+                </>
               )}
             </div>
           )}
@@ -965,6 +1096,40 @@ export default function ListsPage() {
               if (itemToDelete) {
                 await deleteItem(userCode, itemToDelete.id, cascade);
               }
+            }}
+          />
+
+          {/* PIN Lock / Unlock Dialog */}
+          <PinDialog
+            open={pinDialogOpen}
+            onOpenChange={(open) => {
+              setPinDialogOpen(open);
+              if (!open) setPinTargetList(null);
+            }}
+            mode={pinDialogMode}
+            listName={pinTargetList?.name || "List"}
+            onConfirm={async (pin) => {
+              if (!pinTargetList) return false;
+              if (pinDialogMode === "SET_PIN") {
+                await setListPin(userCode, pinTargetList.id, pin);
+                return true;
+              } else if (pinDialogMode === "UNLOCK_TEMPORARY") {
+                const actualPin = lockedListPins[pinTargetList.id];
+                if (actualPin && actualPin === pin) {
+                  unlockListTemporarily(pinTargetList.id);
+                  setSelectedListId(pinTargetList.id);
+                  return true;
+                }
+                return false;
+              } else if (pinDialogMode === "REMOVE_PIN") {
+                const actualPin = lockedListPins[pinTargetList.id];
+                if (actualPin && actualPin === pin) {
+                  await removeListPin(userCode, pinTargetList.id);
+                  return true;
+                }
+                return false;
+              }
+              return false;
             }}
           />
         </div>

@@ -15,6 +15,16 @@ interface ListStoreState {
   itemSearchQuery: string;
   completedSectionExpanded: boolean;
 
+  // PIN Lock & Unlocked State
+  lockedListPins: Record<string, string>; // listId -> pin
+  unlockedListIds: Set<string>; // Session-based set of unlocked listIds
+  fetchListPins: (userCode: string) => Promise<void>;
+  setListPin: (userCode: string, listId: string, pin: string) => Promise<void>;
+  removeListPin: (userCode: string, listId: string) => Promise<void>;
+  unlockListTemporarily: (listId: string) => void;
+  lockListAgain: (listId: string) => void;
+  isListLocked: (listId: string) => boolean;
+
   // Actions
   fetchLists: (userCode: string) => Promise<void>;
   fetchItems: (userCode: string) => Promise<void>;
@@ -190,6 +200,109 @@ export const useListStore = create<ListStoreState>((set, get) => ({
   searchQuery: "",
   itemSearchQuery: "",
   completedSectionExpanded: true,
+  lockedListPins: {},
+  unlockedListIds: new Set<string>(),
+
+  fetchListPins: async (userCode: string) => {
+    if (!userCode) return;
+    try {
+      const configId = `sys_kairo_list_pins_${userCode}`;
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("notes")
+        .eq("id", configId)
+        .maybeSingle();
+
+      if (!error && data && data.notes) {
+        try {
+          const parsed = JSON.parse(data.notes);
+          if (parsed && typeof parsed === "object") {
+            set({ lockedListPins: parsed });
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.error("Error fetching list pins:", e);
+    }
+  },
+
+  setListPin: async (userCode: string, listId: string, pin: string) => {
+    if (!userCode || !listId || !pin) return;
+    const current = { ...get().lockedListPins };
+    current[listId] = pin;
+    set({ lockedListPins: current });
+
+    // Also remove from unlockedListIds if it was there
+    const unlocked = new Set(get().unlockedListIds);
+    unlocked.delete(listId);
+    set({ unlockedListIds: unlocked });
+
+    try {
+      const configId = `sys_kairo_list_pins_${userCode}`;
+      const payload = {
+        id: configId,
+        user_code: userCode,
+        title: "__SYSTEM_LIST_PINS__",
+        notes: JSON.stringify(current),
+        due_date: "2099-01-01",
+        due_time: "12:00",
+        section: "TODAY",
+        is_completed: false,
+        updated_at: Date.now(),
+      };
+      await supabase.from("tasks").upsert(payload, { onConflict: "id" });
+    } catch (e) {
+      console.error("Error saving list pin to cloud:", e);
+    }
+  },
+
+  removeListPin: async (userCode: string, listId: string) => {
+    if (!userCode || !listId) return;
+    const current = { ...get().lockedListPins };
+    delete current[listId];
+    set({ lockedListPins: current });
+
+    const unlocked = new Set(get().unlockedListIds);
+    unlocked.delete(listId);
+    set({ unlockedListIds: unlocked });
+
+    try {
+      const configId = `sys_kairo_list_pins_${userCode}`;
+      const payload = {
+        id: configId,
+        user_code: userCode,
+        title: "__SYSTEM_LIST_PINS__",
+        notes: JSON.stringify(current),
+        due_date: "2099-01-01",
+        due_time: "12:00",
+        section: "TODAY",
+        is_completed: false,
+        updated_at: Date.now(),
+      };
+      await supabase.from("tasks").upsert(payload, { onConflict: "id" });
+    } catch (e) {
+      console.error("Error removing list pin from cloud:", e);
+    }
+  },
+
+  unlockListTemporarily: (listId: string) => {
+    const unlocked = new Set(get().unlockedListIds);
+    unlocked.add(listId);
+    set({ unlockedListIds: unlocked });
+  },
+
+  lockListAgain: (listId: string) => {
+    const unlocked = new Set(get().unlockedListIds);
+    unlocked.delete(listId);
+    set({ unlockedListIds: unlocked });
+  },
+
+  isListLocked: (listId: string) => {
+    const pin = get().lockedListPins[listId];
+    if (!pin) return false;
+    // If it has a pin and is not currently temporarily unlocked in this session
+    return !get().unlockedListIds.has(listId);
+  },
 
   fetchLists: async (userCode: string) => {
     if (!userCode) return;
@@ -298,9 +411,36 @@ export const useListStore = create<ListStoreState>((set, get) => ({
       )
       .subscribe();
 
+    const pinsChannel = supabase
+      .channel(`realtime:sys_list_pins:${userCode}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "tasks",
+          filter: `id=eq.sys_kairo_list_pins_${userCode}`,
+        },
+        (payload) => {
+          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+            const row = payload.new as { notes?: string };
+            if (row && row.notes) {
+              try {
+                const parsed = JSON.parse(row.notes);
+                if (parsed && typeof parsed === "object") {
+                  set({ lockedListPins: parsed });
+                }
+              } catch {}
+            }
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(listChannel);
       supabase.removeChannel(itemChannel);
+      supabase.removeChannel(pinsChannel);
     };
   },
 
