@@ -469,29 +469,95 @@ export default function ListsPage() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-3 px-1">
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-[#918EA2]">
-                    My Task Lists ({filteredLists.length})
-                  </h2>
-                </div>
-
-                {filteredLists.length === 0 && matchingGlobalItems.length === 0 ? (
-                  <div className="text-center py-16 px-4">
-                    <div className="w-12 h-12 rounded-2xl bg-[#161619] border border-[#1C1C20] flex items-center justify-center mx-auto mb-3 text-[#C5C0FF]">
-                      {searchQuery.trim() ? <Search className="w-6 h-6" /> : <Layers className="w-6 h-6" />}
+                {searchQuery.trim() ? (
+                  /* Search View: ONLY show matching items with breadcrumbs directly */
+                  matchingGlobalItems.length === 0 ? (
+                    <div className="text-center py-16 px-4">
+                      <div className="w-12 h-12 rounded-2xl bg-[#161619] border border-[#1C1C20] flex items-center justify-center mx-auto mb-3 text-[#C5C0FF]">
+                        <Search className="w-6 h-6" />
+                      </div>
+                      <p className="text-sm font-semibold text-white">
+                        No items matching "{searchQuery}"
+                      </p>
+                      <p className="text-xs text-[#918EA2] mt-1 max-w-xs mx-auto">
+                        Try searching for another keyword or check spelling.
+                      </p>
                     </div>
-                    <p className="text-sm font-semibold text-white">
-                      {searchQuery.trim() ? `No lists or items matching "${searchQuery}"` : "No task lists yet"}
-                    </p>
-                    <p className="text-xs text-[#918EA2] mt-1 max-w-xs mx-auto">
-                      {searchQuery.trim()
-                        ? "Try searching for another keyword or check spelling."
-                        : "Create dedicated lists for groceries, work projects, travel packing, or personal goals."}
-                    </p>
-                  </div>
+                  ) : (
+                    <div className="space-y-2 pb-24">
+                      {matchingGlobalItems.map((item) => {
+                        const bPath = getItemBreadcrumbPath(item);
+                        return (
+                          <div
+                            key={item.id}
+                            onClick={() => navigateToItem(item)}
+                            className="group flex items-start gap-3 p-3 bg-[#111114] hover:bg-[#161619] border border-[#1C1C20] hover:border-[#474556]/50 rounded-2xl cursor-pointer transition-all"
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleItemCompletion(userCode, item.id);
+                              }}
+                              className={`mt-0.5 w-5 h-5 rounded-lg border flex items-center justify-center transition-colors shrink-0 ${
+                                item.isCompleted
+                                  ? "bg-[#68DBA9] border-[#68DBA9] text-[#053826]"
+                                  : "border-[#474556] hover:border-[#C5C0FF] bg-transparent"
+                              }`}
+                            >
+                              {item.isCompleted && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`text-sm font-medium truncate ${
+                                    item.isCompleted
+                                      ? "line-through text-[#918EA2]"
+                                      : "text-[#E3E1EC]"
+                                  }`}
+                                >
+                                  {item.title}
+                                </span>
+                              </div>
+                              {bPath.length > 0 && (
+                                <div className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-[#C5C0FF] bg-[#C5C0FF]/10 border border-[#C5C0FF]/20 px-2 py-0.5 rounded-md w-fit">
+                                  <FolderTree className="w-3 h-3 text-[#C5C0FF] shrink-0" />
+                                  <span className="truncate max-w-[280px]">
+                                    {bPath.join("  ›  ")}
+                                  </span>
+                                </div>
+                              )}
+                              {item.notes && (
+                                <p className="text-xs text-[#918EA2] truncate mt-1">
+                                  {item.notes}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
                 ) : (
+                  /* Standard Lists View (when not searching) */
                   <>
-                    {filteredLists.length > 0 && (
+                    <div className="flex items-center justify-between mb-3 px-1">
+                      <h2 className="text-xs font-bold uppercase tracking-wider text-[#918EA2]">
+                        My Task Lists ({lists.length})
+                      </h2>
+                    </div>
+
+                    {lists.length === 0 ? (
+                      <div className="text-center py-16 px-4">
+                        <div className="w-12 h-12 rounded-2xl bg-[#161619] border border-[#1C1C20] flex items-center justify-center mx-auto mb-3 text-[#C5C0FF]">
+                          <Layers className="w-6 h-6" />
+                        </div>
+                        <p className="text-sm font-semibold text-white">No task lists yet</p>
+                        <p className="text-xs text-[#918EA2] mt-1 max-w-xs mx-auto">
+                          Create dedicated lists for groceries, work projects, travel packing, or personal goals.
+                        </p>
+                      </div>
+                    ) : (
                       <DndContext
                         sensors={sensors}
                         collisionDetection={closestCenter}
@@ -500,11 +566,11 @@ export default function ListsPage() {
                         onDragCancel={() => document.body.classList.remove("is-dragging")}
                       >
                         <SortableContext
-                          items={filteredLists.map((l) => l.id)}
+                          items={lists.map((l) => l.id)}
                           strategy={verticalListSortingStrategy}
                         >
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-4">
-                            {filteredLists.map((list) => {
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-24">
+                            {lists.map((list) => {
                               const stats = listStatsMap.get(list.id) || { total: 0, completed: 0 };
                               const locked = isListLocked(list.id);
                               return (
@@ -549,68 +615,6 @@ export default function ListsPage() {
                           </div>
                         </SortableContext>
                       </DndContext>
-                    )}
-
-                    {matchingGlobalItems.length > 0 && (
-                      <div className="mt-6 mb-24">
-                        <div className="flex items-center gap-2 mb-3 px-1 text-xs font-semibold text-[#918EA2] uppercase tracking-wider">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[#C5C0FF]" />
-                          <span>Matching Items ({matchingGlobalItems.length})</span>
-                        </div>
-                        <div className="space-y-2">
-                          {matchingGlobalItems.map((item) => {
-                            const bPath = getItemBreadcrumbPath(item);
-                            return (
-                              <div
-                                key={item.id}
-                                onClick={() => navigateToItem(item)}
-                                className="group flex items-start gap-3 p-3 bg-[#111114] hover:bg-[#161619] border border-[#1C1C20] hover:border-[#474556]/50 rounded-2xl cursor-pointer transition-all"
-                              >
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleItemCompletion(userCode, item.id);
-                                  }}
-                                  className={`mt-0.5 w-5 h-5 rounded-lg border flex items-center justify-center transition-colors shrink-0 ${
-                                    item.isCompleted
-                                      ? "bg-[#68DBA9] border-[#68DBA9] text-[#053826]"
-                                      : "border-[#474556] hover:border-[#C5C0FF] bg-transparent"
-                                  }`}
-                                >
-                                  {item.isCompleted && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                                </button>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span
-                                      className={`text-sm font-medium truncate ${
-                                        item.isCompleted
-                                          ? "line-through text-[#918EA2]"
-                                          : "text-[#E3E1EC]"
-                                      }`}
-                                    >
-                                      {item.title}
-                                    </span>
-                                  </div>
-                                  {bPath.length > 0 && (
-                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-[#C5C0FF] bg-[#C5C0FF]/10 border border-[#C5C0FF]/20 px-2 py-0.5 rounded-md w-fit">
-                                      <FolderTree className="w-3 h-3 text-[#C5C0FF] shrink-0" />
-                                      <span className="truncate max-w-[280px]">
-                                        {bPath.join("  ›  ")}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {item.notes && (
-                                    <p className="text-xs text-[#918EA2] truncate mt-1">
-                                      {item.notes}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
                     )}
                   </>
                 )}
