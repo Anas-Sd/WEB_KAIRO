@@ -148,11 +148,17 @@ export default function ListsPage() {
 
   // Breadcrumb navigation stack for infinite hierarchy drill-down
   const [itemBreadcrumbs, setItemBreadcrumbs] = useState<ListItem[]>([]);
+  const pendingBreadcrumbsRef = React.useRef<ListItem[] | null>(null);
   const currentParent = itemBreadcrumbs[itemBreadcrumbs.length - 1] || null;
 
-  // Clear breadcrumbs when switching or exiting lists
+  // Clear breadcrumbs when switching or exiting lists (unless navigation specifically set pending breadcrumbs)
   useEffect(() => {
-    setItemBreadcrumbs([]);
+    if (pendingBreadcrumbsRef.current !== null) {
+      setItemBreadcrumbs(pendingBreadcrumbsRef.current);
+      pendingBreadcrumbsRef.current = null;
+    } else {
+      setItemBreadcrumbs([]);
+    }
   }, [selectedListId]);
 
   // DnD Sensors
@@ -209,15 +215,6 @@ export default function ListsPage() {
   // Helper to drill down directly to an item
   const navigateToItem = useCallback(
     (item: ListItem) => {
-      const targetList = lists.find((l) => l.id === item.listId);
-      if (targetList && isListLocked(targetList.id)) {
-        setPinTargetList(targetList);
-        setPinDialogMode("UNLOCK_TEMPORARY");
-        setPinDialogOpen(true);
-        return;
-      }
-
-      setSelectedListId(item.listId);
       const listItems = items.filter((i) => i.listId === item.listId);
       const itemMap = new Map(listItems.map((i) => [i.id, i]));
       const ancestors: ListItem[] = [];
@@ -237,11 +234,27 @@ export default function ListsPage() {
       if (hasSubtasks) {
         ancestors.push(item);
       }
-      setItemBreadcrumbs(ancestors);
+
+      pendingBreadcrumbsRef.current = ancestors;
+
+      const targetList = lists.find((l) => l.id === item.listId);
+      if (targetList && isListLocked(targetList.id)) {
+        setPinTargetList(targetList);
+        setPinDialogMode("UNLOCK_TEMPORARY");
+        setPinDialogOpen(true);
+        return;
+      }
+
+      if (selectedListId === item.listId) {
+        setItemBreadcrumbs(ancestors);
+        pendingBreadcrumbsRef.current = null;
+      } else {
+        setSelectedListId(item.listId);
+      }
       setSearchQuery("");
       setItemSearchQuery("");
     },
-    [lists, items, isListLocked, setSearchQuery, setItemSearchQuery, setSelectedListId, setPinTargetList, setPinDialogMode, setPinDialogOpen]
+    [lists, items, selectedListId, isListLocked, setSearchQuery, setItemSearchQuery, setSelectedListId, setPinTargetList, setPinDialogMode, setPinDialogOpen]
   );
 
   // Filtered lists and global items for overview
@@ -271,7 +284,7 @@ export default function ListsPage() {
 
   // Keep breadcrumbs synchronized with item state updates
   useEffect(() => {
-    if (itemBreadcrumbs.length > 0) {
+    if (selectedListId && currentListItems.length > 0 && itemBreadcrumbs.length > 0) {
       const validMap = new Map(currentListItems.map((i) => [i.id, i]));
       const nextBreadcrumbs: ListItem[] = [];
       for (const crumb of itemBreadcrumbs) {
@@ -283,7 +296,7 @@ export default function ListsPage() {
         setItemBreadcrumbs(nextBreadcrumbs);
       }
     }
-  }, [currentListItems, itemBreadcrumbs]);
+  }, [selectedListId, currentListItems, itemBreadcrumbs]);
 
   // Subtask statistics map per parent
   const subtaskStatsMap = useMemo(() => {
@@ -1281,6 +1294,10 @@ export default function ListsPage() {
                 const actualPin = lockedListPins[pinTargetList.id];
                 if (actualPin && actualPin === pin) {
                   unlockListTemporarily(pinTargetList.id);
+                  if (pendingBreadcrumbsRef.current !== null) {
+                    setItemBreadcrumbs(pendingBreadcrumbsRef.current);
+                    pendingBreadcrumbsRef.current = null;
+                  }
                   setSelectedListId(pinTargetList.id);
                   return true;
                 }
