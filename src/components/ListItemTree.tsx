@@ -22,6 +22,8 @@ import { ParentListItemCard } from "./ParentListItemCard";
 export interface ListItemRowProps {
   item: ListItem;
   subtaskStats?: { total: number; completed: number };
+  breadcrumbPath?: string[] | null;
+  onNavigateToLocation?: () => void;
   isSelectionMode?: boolean;
   isSelected?: boolean;
   parentTitle?: string | null;
@@ -39,6 +41,8 @@ export interface ListItemRowProps {
 export function ListItemRow({
   item,
   subtaskStats,
+  breadcrumbPath,
+  onNavigateToLocation,
   isSelectionMode = false,
   isSelected = false,
   parentTitle,
@@ -87,6 +91,8 @@ export function ListItemRow({
         item={item}
         totalSubtasks={subtaskStats?.total || 0}
         completedSubtasks={subtaskStats?.completed || 0}
+        breadcrumbPath={breadcrumbPath}
+        onNavigateToLocation={onNavigateToLocation}
         isSelectionMode={isSelectionMode}
         isSelected={isSelected}
         onToggleSelect={onToggleSelect}
@@ -170,12 +176,31 @@ export function ListItemRow({
             </span>
 
             {/* Parent badge if in search view */}
-            {parentTitle && (
+            {parentTitle && !breadcrumbPath && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#111114] text-[#918EA2] border border-[#1C1C20] shrink-0">
                 ↳ {parentTitle}
               </span>
             )}
           </div>
+
+          {/* Breadcrumb path below title */}
+          {breadcrumbPath && breadcrumbPath.length > 0 && (
+            <div
+              onClick={(e) => {
+                if (onNavigateToLocation) {
+                  e.stopPropagation();
+                  onNavigateToLocation();
+                }
+              }}
+              className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-[#C5C0FF] bg-[#C5C0FF]/10 border border-[#C5C0FF]/20 px-2 py-0.5 rounded-md w-fit hover:bg-[#C5C0FF]/20 transition-colors"
+              title={breadcrumbPath.join("  ›  ")}
+            >
+              <FolderTree className="w-3 h-3 text-[#C5C0FF] shrink-0" />
+              <span className="truncate max-w-[260px]">
+                {breadcrumbPath.join("  ›  ")}
+              </span>
+            </div>
+          )}
 
           {/* Subtitle row: Notes snippet & Target date */}
           {(item.notes || item.targetDate) && (

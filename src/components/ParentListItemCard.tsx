@@ -20,6 +20,8 @@ export interface ParentListItemCardProps {
   item: ListItem;
   totalSubtasks: number;
   completedSubtasks: number;
+  breadcrumbPath?: string[] | null;
+  onNavigateToLocation?: () => void;
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
@@ -37,6 +39,8 @@ export function ParentListItemCard({
   item,
   totalSubtasks,
   completedSubtasks,
+  breadcrumbPath,
+  onNavigateToLocation,
   isSelectionMode = false,
   isSelected = false,
   onToggleSelect,
@@ -151,6 +155,23 @@ export function ParentListItemCard({
             <p className="text-xs text-[#918EA2] mt-0.5 font-normal">
               {completedSubtasks}/{totalSubtasks} completed
             </p>
+            {breadcrumbPath && breadcrumbPath.length > 0 && (
+              <div
+                onClick={(e) => {
+                  if (onNavigateToLocation) {
+                    e.stopPropagation();
+                    onNavigateToLocation();
+                  }
+                }}
+                className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-[#C5C0FF] bg-[#C5C0FF]/10 border border-[#C5C0FF]/20 px-2 py-0.5 rounded-md w-fit hover:bg-[#C5C0FF]/20 transition-colors"
+                title={breadcrumbPath.join("  ›  ")}
+              >
+                <FolderTree className="w-3 h-3 text-[#C5C0FF] shrink-0" />
+                <span className="truncate max-w-[260px]">
+                  {breadcrumbPath.join("  ›  ")}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

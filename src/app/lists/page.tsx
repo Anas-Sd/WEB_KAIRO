@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   ArrowLeft,
   Plus,
   Search,
   X,
   MoreVertical,
+  Check,
   CheckSquare,
   RefreshCw,
   Layers,
@@ -176,12 +177,91 @@ export default function ListsPage() {
     return map;
   }, [lists, items]);
 
-  // Filtered lists for overview
-  const filteredLists = useMemo(() => {
-    if (!searchQuery.trim()) return lists;
+  // Helper to construct full breadcrumb path for any item (e.g. ["GOALS", "ABBU"])
+  const getItemBreadcrumbPath = useCallback(
+    (item: ListItem): string[] => {
+      const list = lists.find((l) => l.id === item.listId);
+      const listItems = items.filter((i) => i.listId === item.listId);
+      const itemMap = new Map(listItems.map((i) => [i.id, i]));
+      const ancestors: string[] = [];
+      let curr = item.parentId;
+      const visited = new Set<string>();
+      while (curr && !visited.has(curr)) {
+        visited.add(curr);
+        const parent = itemMap.get(curr);
+        if (parent) {
+          ancestors.unshift(parent.title);
+          curr = parent.parentId;
+        } else {
+          break;
+        }
+      }
+      const path: string[] = [];
+      if (list?.name) {
+        path.push(list.name);
+      }
+      path.push(...ancestors);
+      return path;
+    },
+    [lists, items]
+  );
+
+  // Helper to drill down directly to an item
+  const navigateToItem = useCallback(
+    (item: ListItem) => {
+      const targetList = lists.find((l) => l.id === item.listId);
+      if (targetList && isListLocked(targetList.id)) {
+        setPinTargetList(targetList);
+        setPinDialogMode("UNLOCK_TEMPORARY");
+        setPinDialogOpen(true);
+        return;
+      }
+
+      setSelectedListId(item.listId);
+      const listItems = items.filter((i) => i.listId === item.listId);
+      const itemMap = new Map(listItems.map((i) => [i.id, i]));
+      const ancestors: ListItem[] = [];
+      let curr = item.parentId;
+      const visited = new Set<string>();
+      while (curr && !visited.has(curr)) {
+        visited.add(curr);
+        const parent = itemMap.get(curr);
+        if (parent) {
+          ancestors.unshift(parent);
+          curr = parent.parentId;
+        } else {
+          break;
+        }
+      }
+      const hasSubtasks = listItems.some((i) => i.parentId === item.id);
+      if (hasSubtasks) {
+        ancestors.push(item);
+      }
+      setItemBreadcrumbs(ancestors);
+      setSearchQuery("");
+      setItemSearchQuery("");
+    },
+    [lists, items, isListLocked, setSearchQuery, setItemSearchQuery, setSelectedListId, setPinTargetList, setPinDialogMode, setPinDialogOpen]
+  );
+
+  // Filtered lists and global items for overview
+  const { filteredLists, matchingGlobalItems } = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return { filteredLists: lists, matchingGlobalItems: [] };
+    }
     const q = searchQuery.toLowerCase().trim();
-    return lists.filter((l) => l.name.toLowerCase().includes(q));
-  }, [lists, searchQuery]);
+    const matchingItems = items.filter(
+      (i) => i.title.toLowerCase().includes(q) || (i.notes && i.notes.toLowerCase().includes(q))
+    );
+    const listIdsWithMatchingItems = new Set(matchingItems.map((i) => i.listId));
+    const matchedLists = lists.filter(
+      (l) => l.name.toLowerCase().includes(q) || listIdsWithMatchingItems.has(l.id)
+    );
+    return {
+      filteredLists: matchedLists,
+      matchingGlobalItems: matchingItems,
+    };
+  }, [lists, items, searchQuery]);
 
   // Items for currently selected list
   const currentListItems = useMemo(() => {
@@ -395,74 +475,144 @@ export default function ListsPage() {
                   </h2>
                 </div>
 
-                {filteredLists.length === 0 ? (
+                {filteredLists.length === 0 && matchingGlobalItems.length === 0 ? (
                   <div className="text-center py-16 px-4">
                     <div className="w-12 h-12 rounded-2xl bg-[#161619] border border-[#1C1C20] flex items-center justify-center mx-auto mb-3 text-[#C5C0FF]">
-                      <Layers className="w-6 h-6" />
+                      {searchQuery.trim() ? <Search className="w-6 h-6" /> : <Layers className="w-6 h-6" />}
                     </div>
-                    <p className="text-sm font-semibold text-white">No task lists yet</p>
+                    <p className="text-sm font-semibold text-white">
+                      {searchQuery.trim() ? `No lists or items matching "${searchQuery}"` : "No task lists yet"}
+                    </p>
                     <p className="text-xs text-[#918EA2] mt-1 max-w-xs mx-auto">
-                      Create dedicated lists for groceries, work projects, travel packing, or personal goals.
+                      {searchQuery.trim()
+                        ? "Try searching for another keyword or check spelling."
+                        : "Create dedicated lists for groceries, work projects, travel packing, or personal goals."}
                     </p>
                   </div>
                 ) : (
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragStart={() => document.body.classList.add("is-dragging")}
-                    onDragEnd={handleListDragEnd}
-                    onDragCancel={() => document.body.classList.remove("is-dragging")}
-                  >
-                    <SortableContext
-                      items={filteredLists.map((l) => l.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-24">
-                        {filteredLists.map((list) => {
-                          const stats = listStatsMap.get(list.id) || { total: 0, completed: 0 };
-                          const locked = isListLocked(list.id);
-                          return (
-                            <ListCard
-                              key={list.id}
-                              list={list}
-                              totalItems={stats.total}
-                              completedItems={stats.completed}
-                              isLocked={locked}
-                              onClick={() => {
-                                if (locked) {
-                                  setPinTargetList(list);
-                                  setPinDialogMode("UNLOCK_TEMPORARY");
-                                  setPinDialogOpen(true);
-                                } else {
-                                  setSelectedListId(list.id);
-                                }
-                              }}
-                              onEdit={() => setListToEdit(list)}
-                              onAdjustParent={() => setListToAdjustParent(list)}
-                              onDelete={() => {
-                                if (!locked) {
-                                  setListToDelete(list);
-                                }
-                              }}
-                              onShowDetails={() => setListForDetails(list)}
-                              onToggleLock={() => {
-                                setPinTargetList(list);
-                                if (lockedListPins[list.id]) {
-                                  setPinDialogMode("REMOVE_PIN");
-                                } else {
-                                  setPinDialogMode("SET_PIN");
-                                }
-                                setPinDialogOpen(true);
-                              }}
-                              isSelectionMode={isSelectionMode}
-                              isSelected={selectedListIds.has(list.id)}
-                              onToggleSelect={() => toggleSelectList(list.id)}
-                            />
-                          );
-                        })}
+                  <>
+                    {filteredLists.length > 0 && (
+                      <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragStart={() => document.body.classList.add("is-dragging")}
+                        onDragEnd={handleListDragEnd}
+                        onDragCancel={() => document.body.classList.remove("is-dragging")}
+                      >
+                        <SortableContext
+                          items={filteredLists.map((l) => l.id)}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-4">
+                            {filteredLists.map((list) => {
+                              const stats = listStatsMap.get(list.id) || { total: 0, completed: 0 };
+                              const locked = isListLocked(list.id);
+                              return (
+                                <ListCard
+                                  key={list.id}
+                                  list={list}
+                                  totalItems={stats.total}
+                                  completedItems={stats.completed}
+                                  isLocked={locked}
+                                  onClick={() => {
+                                    if (locked) {
+                                      setPinTargetList(list);
+                                      setPinDialogMode("UNLOCK_TEMPORARY");
+                                      setPinDialogOpen(true);
+                                    } else {
+                                      setSelectedListId(list.id);
+                                    }
+                                  }}
+                                  onEdit={() => setListToEdit(list)}
+                                  onAdjustParent={() => setListToAdjustParent(list)}
+                                  onDelete={() => {
+                                    if (!locked) {
+                                      setListToDelete(list);
+                                    }
+                                  }}
+                                  onShowDetails={() => setListForDetails(list)}
+                                  onToggleLock={() => {
+                                    setPinTargetList(list);
+                                    if (lockedListPins[list.id]) {
+                                      setPinDialogMode("REMOVE_PIN");
+                                    } else {
+                                      setPinDialogMode("SET_PIN");
+                                    }
+                                    setPinDialogOpen(true);
+                                  }}
+                                  isSelectionMode={isSelectionMode}
+                                  isSelected={selectedListIds.has(list.id)}
+                                  onToggleSelect={() => toggleSelectList(list.id)}
+                                />
+                              );
+                            })}
+                          </div>
+                        </SortableContext>
+                      </DndContext>
+                    )}
+
+                    {matchingGlobalItems.length > 0 && (
+                      <div className="mt-6 mb-24">
+                        <div className="flex items-center gap-2 mb-3 px-1 text-xs font-semibold text-[#918EA2] uppercase tracking-wider">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#C5C0FF]" />
+                          <span>Matching Items ({matchingGlobalItems.length})</span>
+                        </div>
+                        <div className="space-y-2">
+                          {matchingGlobalItems.map((item) => {
+                            const bPath = getItemBreadcrumbPath(item);
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => navigateToItem(item)}
+                                className="group flex items-start gap-3 p-3 bg-[#111114] hover:bg-[#161619] border border-[#1C1C20] hover:border-[#474556]/50 rounded-2xl cursor-pointer transition-all"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleItemCompletion(userCode, item.id);
+                                  }}
+                                  className={`mt-0.5 w-5 h-5 rounded-lg border flex items-center justify-center transition-colors shrink-0 ${
+                                    item.isCompleted
+                                      ? "bg-[#68DBA9] border-[#68DBA9] text-[#053826]"
+                                      : "border-[#474556] hover:border-[#C5C0FF] bg-transparent"
+                                  }`}
+                                >
+                                  {item.isCompleted && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                                </button>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={`text-sm font-medium truncate ${
+                                        item.isCompleted
+                                          ? "line-through text-[#918EA2]"
+                                          : "text-[#E3E1EC]"
+                                      }`}
+                                    >
+                                      {item.title}
+                                    </span>
+                                  </div>
+                                  {bPath.length > 0 && (
+                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-[#C5C0FF] bg-[#C5C0FF]/10 border border-[#C5C0FF]/20 px-2 py-0.5 rounded-md w-fit">
+                                      <FolderTree className="w-3 h-3 text-[#C5C0FF] shrink-0" />
+                                      <span className="truncate max-w-[280px]">
+                                        {bPath.join("  ›  ")}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {item.notes && (
+                                    <p className="text-xs text-[#918EA2] truncate mt-1">
+                                      {item.notes}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </SortableContext>
-                  </DndContext>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -803,6 +953,10 @@ export default function ListsPage() {
                                 key={item.id}
                                 item={item}
                                 subtaskStats={subtaskStatsMap.get(item.id)}
+                                breadcrumbPath={
+                                  itemSearchQuery.trim() ? getItemBreadcrumbPath(item) : null
+                                }
+                                onNavigateToLocation={() => navigateToItem(item)}
                                 parentTitle={
                                   item.parentId
                                     ? currentListItems.find((p) => p.id === item.parentId)?.title
@@ -847,18 +1001,24 @@ export default function ListsPage() {
                           </div>
                           <ChevronDown
                             className={`w-4 h-4 transition-transform duration-200 ${
-                              completedSectionExpanded ? "rotate-180" : ""
+                              completedSectionExpanded || itemSearchQuery.trim().length > 0
+                                ? "rotate-180"
+                                : ""
                             }`}
                           />
                         </button>
 
-                        {completedSectionExpanded && (
+                        {(completedSectionExpanded || itemSearchQuery.trim().length > 0) && (
                           <div className="space-y-2 mt-2">
                             {scopedCompletedItems.map((item) => (
                               <ListItemRow
                                 key={item.id}
                                 item={item}
                                 subtaskStats={subtaskStatsMap.get(item.id)}
+                                breadcrumbPath={
+                                  itemSearchQuery.trim() ? getItemBreadcrumbPath(item) : null
+                                }
+                                onNavigateToLocation={() => navigateToItem(item)}
                                 parentTitle={
                                   item.parentId
                                     ? currentListItems.find((p) => p.id === item.parentId)?.title
