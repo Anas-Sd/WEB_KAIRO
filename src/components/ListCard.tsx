@@ -75,6 +75,7 @@ export function ListCard({
               type="button"
               {...dragHandleProps}
               onClick={(e) => e.stopPropagation()}
+              style={{ touchAction: "none" }}
               className="cursor-grab active:cursor-grabbing text-[#918EA2] hover:text-white p-0.5 opacity-60 hover:opacity-100 transition-opacity shrink-0"
               title="Drag to reorder"
             >

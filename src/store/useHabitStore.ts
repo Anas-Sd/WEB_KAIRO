@@ -342,7 +342,12 @@ function dtoHabitToDomain(dto: HabitDto): Habit {
     reminderToneTitle: dto.reminder_tone_title ?? null,
     position: dto.position ?? 0,
     notePrompt: (dto.note_prompt as NotePrompt) || "BOTH",
-    startDate: dto.start_date || format(new Date(), "yyyy-MM-dd"),
+    startDate:
+      dto.start_date && dto.start_date.trim() !== ""
+        ? dto.start_date
+        : dto.created_at
+        ? format(new Date(dto.created_at), "yyyy-MM-dd")
+        : format(new Date(), "yyyy-MM-dd"),
     createdAt: dto.created_at ?? Date.now(),
     updatedAt: dto.updated_at ?? Date.now(),
   };

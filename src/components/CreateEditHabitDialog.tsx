@@ -74,7 +74,13 @@ export function CreateEditHabitDialog({
           uri: habitToEdit.reminderToneUri,
         });
         setNotePrompt(habitToEdit.notePrompt);
-        setStartDate(habitToEdit.startDate);
+        const effectiveStart =
+          habitToEdit.startDate && habitToEdit.startDate.trim() !== ""
+            ? habitToEdit.startDate
+            : habitToEdit.createdAt
+            ? format(new Date(habitToEdit.createdAt), "yyyy-MM-dd")
+            : format(new Date(), "yyyy-MM-dd");
+        setStartDate(effectiveStart);
       } else {
         setTitle("");
         setType("YES_NO");

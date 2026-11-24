@@ -31,8 +31,11 @@ import {
   SortableContext,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
+  rectSortingStrategy,
   arrayMove,
+  useSortable,
 } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import { AppShell } from "@/components/AppShell";
 import { AppHeader } from "@/components/AppHeader";
@@ -59,6 +62,25 @@ import { Lock } from "lucide-react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useListStore } from "@/store/useListStore";
 import { TaskList, ListItem } from "@/types";
+
+// Sortable List Card Wrapper for drag-and-drop reordering
+function SortableListCard(props: React.ComponentProps<typeof ListCard>) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: props.list.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : "auto",
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <ListCard {...props} dragHandleProps={{ ...attributes, ...listeners }} />
+    </div>
+  );
+}
 
 export default function ListsPage() {
   const { user } = useAuthStore();
@@ -331,28 +353,13 @@ export default function ListsPage() {
     const active = base.filter((i) => !i.isCompleted);
     const completed = base.filter((i) => i.isCompleted);
 
-    // If not searching, float parents (items with subtasks) above leaf items
-    if (!isSearching) {
-      const parents = active.filter((i) => subtaskStatsMap.has(i.id));
-      const leaves = active.filter((i) => !subtaskStatsMap.has(i.id));
-      return {
-        scopedActiveItems: [
-          ...parents.sort((a, b) => a.position - b.position),
-          ...leaves.sort((a, b) => a.position - b.position),
-        ],
-        scopedCompletedItems: completed.sort(
-          (a, b) => (b.completedAt || 0) - (a.completedAt || 0)
-        ),
-      };
-    }
-
     return {
       scopedActiveItems: active.sort((a, b) => a.position - b.position),
       scopedCompletedItems: completed.sort(
         (a, b) => (b.completedAt || 0) - (a.completedAt || 0)
       ),
     };
-  }, [currentListItems, itemSearchQuery, currentParent, subtaskStatsMap]);
+  }, [currentListItems, itemSearchQuery, currentParent]);
 
   const handleQuickAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -371,10 +378,10 @@ export default function ListsPage() {
     document.body.classList.remove("is-dragging");
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIdx = filteredLists.findIndex((l) => l.id === active.id);
-    const newIdx = filteredLists.findIndex((l) => l.id === over.id);
+    const oldIdx = lists.findIndex((l) => l.id === active.id);
+    const newIdx = lists.findIndex((l) => l.id === over.id);
     if (oldIdx !== -1 && newIdx !== -1) {
-      const reordered = arrayMove(filteredLists, oldIdx, newIdx);
+      const reordered = arrayMove(lists, oldIdx, newIdx);
       await reorderLists(userCode, reordered);
     }
   };
@@ -483,72 +490,139 @@ export default function ListsPage() {
 
               <div>
                 {searchQuery.trim() ? (
-                  /* Search View: ONLY show matching items with breadcrumbs directly */
-                  matchingGlobalItems.length === 0 ? (
+                  /* Search View: Show matching lists AND matching items */
+                  filteredLists.length === 0 && matchingGlobalItems.length === 0 ? (
                     <div className="text-center py-16 px-4">
                       <div className="w-12 h-12 rounded-2xl bg-[#161619] border border-[#1C1C20] flex items-center justify-center mx-auto mb-3 text-[#C5C0FF]">
                         <Search className="w-6 h-6" />
                       </div>
                       <p className="text-sm font-semibold text-white">
-                        No items matching "{searchQuery}"
+                        No lists or items matching "{searchQuery}"
                       </p>
                       <p className="text-xs text-[#918EA2] mt-1 max-w-xs mx-auto">
                         Try searching for another keyword or check spelling.
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-2 pb-24">
-                      {matchingGlobalItems.map((item) => {
-                        const bPath = getItemBreadcrumbPath(item);
-                        return (
-                          <div
-                            key={item.id}
-                            onClick={() => navigateToItem(item)}
-                            className="group flex items-start gap-3 p-3 bg-[#111114] hover:bg-[#161619] border border-[#1C1C20] hover:border-[#474556]/50 rounded-2xl cursor-pointer transition-all"
-                          >
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleItemCompletion(userCode, item.id);
-                              }}
-                              className={`mt-0.5 w-5 h-5 rounded-lg border flex items-center justify-center transition-colors shrink-0 ${
-                                item.isCompleted
-                                  ? "bg-[#68DBA9] border-[#68DBA9] text-[#053826]"
-                                  : "border-[#474556] hover:border-[#C5C0FF] bg-transparent"
-                              }`}
-                            >
-                              {item.isCompleted && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                            </button>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`text-sm font-medium truncate ${
-                                    item.isCompleted
-                                      ? "line-through text-[#918EA2]"
-                                      : "text-[#E3E1EC]"
-                                  }`}
-                                >
-                                  {item.title}
-                                </span>
-                              </div>
-                              {bPath.length > 0 && (
-                                <div className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-[#C5C0FF] bg-[#C5C0FF]/10 border border-[#C5C0FF]/20 px-2 py-0.5 rounded-md w-fit">
-                                  <FolderTree className="w-3 h-3 text-[#C5C0FF] shrink-0" />
-                                  <span className="truncate max-w-[280px]">
-                                    {bPath.join("  ›  ")}
-                                  </span>
-                                </div>
-                              )}
-                              {item.notes && (
-                                <p className="text-xs text-[#918EA2] truncate mt-1">
-                                  {item.notes}
-                                </p>
-                              )}
-                            </div>
+                    <div className="space-y-6 pb-24">
+                      {/* Matching Lists Section */}
+                      {filteredLists.length > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between mb-3 px-1">
+                            <h2 className="text-xs font-bold uppercase tracking-wider text-[#918EA2]">
+                              Lists ({filteredLists.length})
+                            </h2>
                           </div>
-                        );
-                      })}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {filteredLists.map((list) => {
+                              const stats = listStatsMap.get(list.id) || { total: 0, completed: 0 };
+                              const locked = isListLocked(list.id);
+                              return (
+                                <ListCard
+                                  key={list.id}
+                                  list={list}
+                                  totalItems={stats.total}
+                                  completedItems={stats.completed}
+                                  isLocked={locked}
+                                  onClick={() => {
+                                    if (locked) {
+                                      setPinTargetList(list);
+                                      setPinDialogMode("UNLOCK_TEMPORARY");
+                                      setPinDialogOpen(true);
+                                    } else {
+                                      setSelectedListId(list.id);
+                                    }
+                                  }}
+                                  onEdit={() => setListToEdit(list)}
+                                  onAdjustParent={() => setListToAdjustParent(list)}
+                                  onDelete={() => {
+                                    if (!locked) {
+                                      setListToDelete(list);
+                                    }
+                                  }}
+                                  onShowDetails={() => setListForDetails(list)}
+                                  onToggleLock={() => {
+                                    setPinTargetList(list);
+                                    if (lockedListPins[list.id]) {
+                                      setPinDialogMode("REMOVE_PIN");
+                                    } else {
+                                      setPinDialogMode("SET_PIN");
+                                    }
+                                    setPinDialogOpen(true);
+                                  }}
+                                  isSelectionMode={isSelectionMode}
+                                  isSelected={selectedListIds.has(list.id)}
+                                  onToggleSelect={() => toggleSelectList(list.id)}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Matching Items Section */}
+                      {matchingGlobalItems.length > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between mb-3 px-1">
+                            <h2 className="text-xs font-bold uppercase tracking-wider text-[#918EA2]">
+                              Items ({matchingGlobalItems.length})
+                            </h2>
+                          </div>
+                          <div className="space-y-2">
+                            {matchingGlobalItems.map((item) => {
+                              const bPath = getItemBreadcrumbPath(item);
+                              return (
+                                <div
+                                  key={item.id}
+                                  onClick={() => navigateToItem(item)}
+                                  className="group flex items-start gap-3 p-3 bg-[#111114] hover:bg-[#161619] border border-[#1C1C20] hover:border-[#474556]/50 rounded-2xl cursor-pointer transition-all"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleItemCompletion(userCode, item.id);
+                                    }}
+                                    className={`mt-0.5 w-5 h-5 rounded-lg border flex items-center justify-center transition-colors shrink-0 ${
+                                      item.isCompleted
+                                        ? "bg-[#68DBA9] border-[#68DBA9] text-[#053826]"
+                                        : "border-[#474556] hover:border-[#C5C0FF] bg-transparent"
+                                    }`}
+                                  >
+                                    {item.isCompleted && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                                  </button>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className={`text-sm font-medium truncate ${
+                                          item.isCompleted
+                                            ? "line-through text-[#918EA2]"
+                                            : "text-[#E3E1EC]"
+                                        }`}
+                                      >
+                                        {item.title}
+                                      </span>
+                                    </div>
+                                    {bPath.length > 0 && (
+                                      <div className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-[#C5C0FF] bg-[#C5C0FF]/10 border border-[#C5C0FF]/20 px-2 py-0.5 rounded-md w-fit">
+                                        <FolderTree className="w-3 h-3 text-[#C5C0FF] shrink-0" />
+                                        <span className="truncate max-w-[280px]">
+                                          {bPath.join("  ›  ")}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {item.notes && (
+                                      <p className="text-xs text-[#918EA2] truncate mt-1">
+                                        {item.notes}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 ) : (
@@ -580,14 +654,14 @@ export default function ListsPage() {
                       >
                         <SortableContext
                           items={lists.map((l) => l.id)}
-                          strategy={verticalListSortingStrategy}
+                          strategy={rectSortingStrategy}
                         >
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-24">
                             {lists.map((list) => {
                               const stats = listStatsMap.get(list.id) || { total: 0, completed: 0 };
                               const locked = isListLocked(list.id);
                               return (
-                                <ListCard
+                                <SortableListCard
                                   key={list.id}
                                   list={list}
                                   totalItems={stats.total}

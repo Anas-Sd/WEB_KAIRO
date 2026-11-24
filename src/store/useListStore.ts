@@ -508,10 +508,21 @@ export const useListStore = create<ListStoreState>((set, get) => ({
   },
 
   reorderLists: async (userCode: string, reorderedLists: TaskList[]) => {
-    const updated = reorderedLists.map((l, idx) => ({ ...l, position: idx }));
+    const reorderedMap = new Map(reorderedLists.map((l, idx) => [l.id, idx]));
+    const currentLists = get().lists;
+    const updated = currentLists
+      .map((l) => {
+        if (reorderedMap.has(l.id)) {
+          return { ...l, position: reorderedMap.get(l.id)! };
+        }
+        return l;
+      })
+      .sort((a, b) => a.position - b.position);
+
     set({ lists: updated });
 
-    for (const l of updated) {
+    const touched = updated.filter((l) => reorderedMap.has(l.id));
+    for (const l of touched) {
       await supabase.from("task_lists").update({ position: l.position }).eq("id", l.id);
     }
   },
