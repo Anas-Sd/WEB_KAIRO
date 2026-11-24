@@ -54,6 +54,11 @@ export function ParentListItemCard({
   dragHandleProps,
 }: ParentListItemCardProps) {
   const [isAnimating, setIsAnimating] = useState(false);
+  const [localCompleted, setLocalCompleted] = useState(item.isCompleted);
+
+  React.useEffect(() => {
+    setLocalCompleted(item.isCompleted);
+  }, [item.isCompleted]);
 
   const percentage =
     totalSubtasks > 0 ? Math.round((completedSubtasks * 100) / totalSubtasks) : 0;
@@ -64,11 +69,13 @@ export function ParentListItemCard({
       onToggleSelect();
       return;
     }
+    const next = !localCompleted;
+    setLocalCompleted(next);
     setIsAnimating(true);
     setTimeout(() => {
       onToggleCompletion(item.id);
       setIsAnimating(false);
-    }, 280);
+    }, 300);
   };
 
   const handleCardClick = () => {
@@ -124,16 +131,24 @@ export function ParentListItemCard({
             <motion.button
               type="button"
               onClick={handleCheckboxClick}
-              animate={isAnimating ? { scale: [1, 1.35, 0.88, 1] } : { scale: 1 }}
-              transition={{ duration: 0.28, ease: "easeInOut" }}
+              animate={isAnimating ? { scale: [1, 1.35, 0.9, 1] } : { scale: 1 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
               className={`w-5 h-5 rounded-[8px] flex items-center justify-center border transition-all shrink-0 cursor-pointer ${
-                item.isCompleted
+                localCompleted
                   ? "bg-[#5A45FF] border-[#5A45FF] shadow-sm shadow-[#5A45FF]/30"
                   : "bg-transparent border-white/45 hover:border-white/80"
               }`}
-              title={item.isCompleted ? "Mark incomplete" : "Mark complete"}
+              title={localCompleted ? "Mark incomplete" : "Mark complete"}
             >
-              {item.isCompleted && <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />}
+              {localCompleted && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                >
+                  <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />
+                </motion.div>
+              )}
             </motion.button>
           )}
 
@@ -145,8 +160,8 @@ export function ParentListItemCard({
           {/* Title & Subtasks completed count */}
           <div className="flex-1 min-w-0">
             <h3
-              className={`text-sm font-bold tracking-wide truncate transition-colors ${
-                item.isCompleted
+              className={`text-sm font-bold tracking-wide truncate transition-all duration-200 ${
+                localCompleted
                   ? "line-through text-[#918EA2]/60"
                   : "text-[#E3E1EC] group-hover:text-white"
               }`}

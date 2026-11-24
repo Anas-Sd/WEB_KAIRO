@@ -30,15 +30,23 @@ export function Sidebar({ onOpenSettings }: NavigationProps) {
   const router = useRouter();
 
   const handleTabClick = (href: string) => {
-    if (pathname === href) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      useTaskStore.getState().setSearchQuery("");
-      useTaskStore.getState().exitSelectionMode();
-      useTaskStore.getState().setBreadcrumb(null);
+    // Reset the store state of the target tab so it opens/resets to its default position
+    if (href === "/lists") {
+      useListStore.getState().setSelectedListId(null);
       useListStore.getState().setSearchQuery("");
+      useListStore.getState().setItemSearchQuery("");
       useListStore.getState().exitSelectionMode();
+    } else if (href === "/tasks") {
+      useTaskStore.getState().setBreadcrumb(null);
+      useTaskStore.getState().clearFilters();
+      useTaskStore.getState().exitSelectionMode();
+    } else if (href === "/habits") {
       useHabitStore.getState().setSearchQuery("");
       useHabitStore.getState().exitSelectionMode();
+    }
+
+    if (pathname.startsWith(href)) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       router.push(href);
     }
@@ -106,15 +114,23 @@ export function BottomNav() {
   const router = useRouter();
 
   const handleTabClick = (href: string) => {
-    if (pathname === href) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      useTaskStore.getState().setSearchQuery("");
-      useTaskStore.getState().exitSelectionMode();
-      useTaskStore.getState().setBreadcrumb(null);
+    // Reset the store state of the target tab so it opens/resets to its default position
+    if (href === "/lists") {
+      useListStore.getState().setSelectedListId(null);
       useListStore.getState().setSearchQuery("");
+      useListStore.getState().setItemSearchQuery("");
       useListStore.getState().exitSelectionMode();
+    } else if (href === "/tasks") {
+      useTaskStore.getState().setBreadcrumb(null);
+      useTaskStore.getState().clearFilters();
+      useTaskStore.getState().exitSelectionMode();
+    } else if (href === "/habits") {
       useHabitStore.getState().setSearchQuery("");
       useHabitStore.getState().exitSelectionMode();
+    }
+
+    if (pathname.startsWith(href)) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       router.push(href);
     }

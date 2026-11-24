@@ -36,6 +36,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { motion } from "framer-motion";
 
 import { AppShell } from "@/components/AppShell";
 import { AppHeader } from "@/components/AppHeader";
@@ -78,6 +79,89 @@ function SortableListCard(props: React.ComponentProps<typeof ListCard>) {
   return (
     <div ref={setNodeRef} style={style}>
       <ListCard {...props} dragHandleProps={{ ...attributes, ...listeners }} />
+    </div>
+  );
+}
+
+function SearchItemRow({
+  item,
+  bPath,
+  onNavigate,
+  onToggle,
+}: {
+  item: ListItem;
+  bPath: string[];
+  onNavigate: () => void;
+  onToggle: () => void;
+}) {
+  const [localCompleted, setLocalCompleted] = useState(item.isCompleted);
+  const [isAnimating, setIsAnimating] = useState(false);
+
+  useEffect(() => {
+    setLocalCompleted(item.isCompleted);
+  }, [item.isCompleted]);
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !localCompleted;
+    setLocalCompleted(next);
+    setIsAnimating(true);
+    setTimeout(() => {
+      onToggle();
+      setIsAnimating(false);
+    }, 300);
+  };
+
+  return (
+    <div
+      onClick={onNavigate}
+      className="group flex items-start gap-3 p-3 bg-[#111114] hover:bg-[#161619] border border-[#1C1C20] hover:border-[#474556]/50 rounded-2xl cursor-pointer transition-all"
+    >
+      <motion.button
+        type="button"
+        onClick={handleToggle}
+        animate={isAnimating ? { scale: [1, 1.35, 0.9, 1] } : { scale: 1 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className={`mt-0.5 w-5 h-5 rounded-lg border flex items-center justify-center transition-colors shrink-0 ${
+          localCompleted
+            ? "bg-[#5A45FF] border-[#5A45FF] text-white shadow-sm shadow-[#5A45FF]/30"
+            : "border-[#474556] hover:border-[#C5C0FF] bg-transparent"
+        }`}
+      >
+        {localCompleted && (
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", stiffness: 500, damping: 25 }}
+          >
+            <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />
+          </motion.div>
+        )}
+      </motion.button>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span
+            className={`text-sm font-medium truncate transition-all duration-200 ${
+              localCompleted ? "line-through text-[#918EA2]" : "text-[#E3E1EC]"
+            }`}
+          >
+            {item.title}
+          </span>
+        </div>
+        {bPath.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-[#C5C0FF] bg-[#C5C0FF]/10 border border-[#C5C0FF]/20 px-2 py-0.5 rounded-md w-fit">
+            <FolderTree className="w-3 h-3 text-[#C5C0FF] shrink-0" />
+            <span className="truncate max-w-[280px]">
+              {bPath.join("  ›  ")}
+            </span>
+          </div>
+        )}
+        {item.notes && (
+          <p className="text-xs text-[#918EA2] truncate mt-1">
+            {item.notes}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -180,6 +264,10 @@ export default function ListsPage() {
       pendingBreadcrumbsRef.current = null;
     } else {
       setItemBreadcrumbs([]);
+    }
+    if (!selectedListId) {
+      setItemForDetails(null);
+      setListForDetails(null);
     }
   }, [selectedListId]);
 
@@ -566,57 +654,15 @@ export default function ListsPage() {
                             </h2>
                           </div>
                           <div className="space-y-2">
-                            {matchingGlobalItems.map((item) => {
-                              const bPath = getItemBreadcrumbPath(item);
-                              return (
-                                <div
-                                  key={item.id}
-                                  onClick={() => navigateToItem(item)}
-                                  className="group flex items-start gap-3 p-3 bg-[#111114] hover:bg-[#161619] border border-[#1C1C20] hover:border-[#474556]/50 rounded-2xl cursor-pointer transition-all"
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleItemCompletion(userCode, item.id);
-                                    }}
-                                    className={`mt-0.5 w-5 h-5 rounded-lg border flex items-center justify-center transition-colors shrink-0 ${
-                                      item.isCompleted
-                                        ? "bg-[#68DBA9] border-[#68DBA9] text-[#053826]"
-                                        : "border-[#474556] hover:border-[#C5C0FF] bg-transparent"
-                                    }`}
-                                  >
-                                    {item.isCompleted && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                                  </button>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <span
-                                        className={`text-sm font-medium truncate ${
-                                          item.isCompleted
-                                            ? "line-through text-[#918EA2]"
-                                            : "text-[#E3E1EC]"
-                                        }`}
-                                      >
-                                        {item.title}
-                                      </span>
-                                    </div>
-                                    {bPath.length > 0 && (
-                                      <div className="flex items-center gap-1.5 mt-1 text-[11px] font-medium text-[#C5C0FF] bg-[#C5C0FF]/10 border border-[#C5C0FF]/20 px-2 py-0.5 rounded-md w-fit">
-                                        <FolderTree className="w-3 h-3 text-[#C5C0FF] shrink-0" />
-                                        <span className="truncate max-w-[280px]">
-                                          {bPath.join("  ›  ")}
-                                        </span>
-                                      </div>
-                                    )}
-                                    {item.notes && (
-                                      <p className="text-xs text-[#918EA2] truncate mt-1">
-                                        {item.notes}
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
+                            {matchingGlobalItems.map((item) => (
+                              <SearchItemRow
+                                key={item.id}
+                                item={item}
+                                bPath={getItemBreadcrumbPath(item)}
+                                onNavigate={() => navigateToItem(item)}
+                                onToggle={() => toggleItemCompletion(userCode, item.id)}
+                              />
+                            ))}
                           </div>
                         </div>
                       )}
