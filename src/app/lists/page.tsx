@@ -288,10 +288,7 @@ export default function ListsPage() {
     const matchingItems = items.filter(
       (i) => i.title.toLowerCase().includes(q) || (i.notes && i.notes.toLowerCase().includes(q))
     );
-    const listIdsWithMatchingItems = new Set(matchingItems.map((i) => i.listId));
-    const matchedLists = lists.filter(
-      (l) => l.name.toLowerCase().includes(q) || listIdsWithMatchingItems.has(l.id)
-    );
+    const matchedLists = lists.filter((l) => l.name.toLowerCase().includes(q));
     return {
       filteredLists: matchedLists,
       matchingGlobalItems: matchingItems,
