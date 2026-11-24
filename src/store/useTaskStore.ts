@@ -7,6 +7,7 @@ import {
   parseDueDateMillis,
   calculateNextRepeatDueDate,
   categorizeTask,
+  determineTaskSection,
 } from "@/lib/dateUtils";
 
 interface FilterCriteria {
@@ -443,7 +444,8 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
           target.dueDate,
           target.repeatType,
           target.repeatDays,
-          target.repeatDates
+          target.repeatDates,
+          target.dueTime
         );
         if (nextRepeat) {
           const snapshotId = `snapshot_${target.id}_${now}`;
@@ -462,7 +464,8 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
           target.dueDateMillis = nextRepeat.nextDueDateMillis;
           target.isCompleted = false;
           target.completedAt = null;
-          target.section = "TODAY";
+          target.snoozeUntilMillis = null;
+          target.section = determineTaskSection(target.dueDate, target.dueDateMillis, target.dueTime, now);
           target.updatedAt = now;
 
           byId.set(snapshotId, completedSnapshot);
@@ -820,16 +823,29 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
         newSnapshots.push(missedSnapshot);
       }
 
+      // Advance active target task to its NEXT recurring occurrence (NOT today!)
+      const nextOccurrence = calculateNextRepeatDueDate(
+        target.dueDateMillis,
+        target.dueDate,
+        target.repeatType,
+        target.repeatDays,
+        target.repeatDates,
+        target.dueTime
+      );
+
+      if (!nextOccurrence) continue;
+
       const rolledOver: Task = {
         ...target,
-        dueDate: "Today",
-        dueDateMillis: todayStart,
-        section: "TODAY",
+        dueDate: nextOccurrence.nextDueDate,
+        dueDateMillis: nextOccurrence.nextDueDateMillis,
+        section: "UPCOMING",
         snoozeUntilMillis: null,
         isCompleted: false,
         completedAt: null,
         updatedAt: now,
       };
+      rolledOver.section = determineTaskSection(rolledOver.dueDate, rolledOver.dueDateMillis, rolledOver.dueTime, now);
       updatedMasters.push(rolledOver);
     }
 

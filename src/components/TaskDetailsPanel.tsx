@@ -19,7 +19,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Task } from "@/types";
-import { formatRemainingTime, calculateTriggerMillis, formatDisplayDate } from "@/lib/dateUtils";
+import { formatRemainingTime, calculateTriggerMillis, formatDisplayDate, calculateNextRepeatDueDate } from "@/lib/dateUtils";
 import { useTaskStore } from "@/store/useTaskStore";
 
 interface TaskDetailsPanelProps {
@@ -208,6 +208,25 @@ export function TaskDetailsPanel({
               {task.repeatDates && (
                 <p className="text-xs text-[#C8C4D9]">Dates: {task.repeatDates}</p>
               )}
+              {(() => {
+                const nextOcc = calculateNextRepeatDueDate(
+                  task.dueDateMillis,
+                  task.dueDate,
+                  task.repeatType,
+                  task.repeatDays,
+                  task.repeatDates,
+                  task.dueTime
+                );
+                if (nextOcc) {
+                  return (
+                    <div className="flex items-center gap-1.5 text-xs text-[#38BDF8] font-medium pt-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Next Recurrence: {nextOcc.nextDueDate}{task.dueTime ? ` at ${task.dueTime}` : ""}</span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
               <p className="text-[11px] text-[#918EA2] italic">
                 * Automatically creates next recurring task when completed.
               </p>

@@ -21,17 +21,21 @@ export function parseDueDateMillis(
   const raw = dueDateStr?.trim() || "";
   if (!raw) return fallback;
 
+  // Strip any appended time portions, e.g. "Nov 24 at 19:56", "Nov 24 @ 7:00 PM"
+  const clean = raw.split(/ at /i)[0].split("@")[0].trim();
+  if (!clean) return fallback;
+
   const now = new Date();
   now.setHours(12, 0, 0, 0);
 
-  const lower = raw.toLowerCase();
+  const lower = clean.toLowerCase();
   if (lower === "today" || lower.startsWith("today")) return now.getTime();
   if (lower === "tomorrow" || lower.startsWith("tomorrow")) return addDays(now, 1).getTime();
   if (lower === "yesterday" || lower.startsWith("yesterday")) return addDays(now, -1).getTime();
   if (lower.includes("day after tomorrow")) return addDays(now, 2).getTime();
 
   // Try direct Date.parse first (handles ISO strings and standard date formats)
-  const direct = Date.parse(raw);
+  const direct = Date.parse(clean);
   if (!isNaN(direct)) {
     const d = new Date(direct);
     if (d.getFullYear() > 1970) {
@@ -77,7 +81,7 @@ export function parseDueDateMillis(
 
   for (const fmt of formats) {
     try {
-      const parsed = parse(raw, fmt, new Date());
+      const parsed = parse(clean, fmt, new Date());
       if (isValid(parsed)) {
         if (parsed.getFullYear() <= 1970) {
           parsed.setFullYear(new Date().getFullYear());
@@ -201,6 +205,93 @@ export function calculateTriggerMillis(
  * Calculates the next future occurrence timestamp for a recurring task.
  * Ensures that recurring reminders are always scheduled ahead even if past instances were not completed.
  */
+/**
+ * Determines whether a specific calendar date matches a task's recurrence definition.
+ * Supports: EVERYDAY, DAILY, DAYS (specific weekdays), DATES (specific dates),
+ * MONTHLY_DATES (dates repeated every month), BOTH (weekdays + specific dates),
+ * and BOTH_MONTHLY (weekdays + monthly dates).
+ */
+export function isDateMatchingRecurrence(
+  date: Date,
+  repeatType?: string | null,
+  repeatDays?: string | null,
+  repeatDates?: string | null
+): boolean {
+  if (!repeatType || repeatType.toUpperCase() === "NONE") return false;
+
+  const type = repeatType.toUpperCase();
+  if (type === "EVERYDAY" || type === "DAILY") return true;
+
+  const hasDays = type.includes("DAYS") || type.includes("BOTH");
+  const hasDates = type.includes("DATES") || type.includes("BOTH");
+
+  let daysMatch = false;
+  if (hasDays && repeatDays && repeatDays.trim().length > 0) {
+    const dayMap: Record<string, number> = {
+      SUN: 0,
+      MON: 1,
+      TUE: 2,
+      WED: 3,
+      THU: 4,
+      FRI: 5,
+      SAT: 6,
+    };
+    const targetDays = new Set(
+      repeatDays
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .map((s) => dayMap[s])
+        .filter((n) => n !== undefined)
+    );
+    if (targetDays.has(date.getDay())) {
+      daysMatch = true;
+    }
+  }
+
+  let datesMatch = false;
+  if (hasDates && repeatDates && repeatDates.trim().length > 0) {
+    const isMonthly = type.includes("MONTHLY");
+    const rawDateList = repeatDates.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+
+    if (isMonthly) {
+      const currentDayOfMonth = date.getDate();
+      for (const dateStr of rawDateList) {
+        const dayNum = parseInt(dateStr.replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(dayNum) && dayNum === currentDayOfMonth) {
+          datesMatch = true;
+          break;
+        }
+      }
+    } else {
+      const formats = ["MMM d", "MMM dd", "yyyy-MM-dd"];
+      const currentMonth = date.getMonth();
+      const currentDay = date.getDate();
+
+      for (const dateStr of rawDateList) {
+        for (const fmt of formats) {
+          try {
+            const parsed = parse(dateStr, fmt, new Date());
+            if (isValid(parsed)) {
+              if (parsed.getMonth() === currentMonth && parsed.getDate() === currentDay) {
+                datesMatch = true;
+                break;
+              }
+            }
+          } catch {}
+        }
+        if (datesMatch) break;
+      }
+    }
+  }
+
+  if (hasDays && hasDates) {
+    return daysMatch || datesMatch;
+  }
+  if (hasDays) return daysMatch;
+  if (hasDates) return datesMatch;
+  return false;
+}
+
 export function calculateNextFutureTriggerMillis(
   dueTime?: string | null,
   repeatType?: RepeatType,
@@ -248,51 +339,22 @@ export function calculateNextFutureTriggerMillis(
   }
 
   // Today candidate
-  const candidate = new Date(now);
+  let candidate = new Date(now);
   candidate.setHours(targetHour, targetMinute, 0, 0);
 
   // If today's time has already elapsed, start searching from tomorrow
-  let startCandidate = candidate.getTime() <= now ? addDays(candidate, 1) : candidate;
-
-  const upperType = repeatType.toUpperCase();
-
-  if (upperType === "EVERYDAY" || upperType === "DAILY") {
-    return startCandidate.getTime();
+  if (candidate.getTime() <= now) {
+    candidate = addDays(candidate, 1);
   }
 
-  if (upperType === "DAYS") {
-    const dayMap: Record<string, number> = {
-      SUN: 0,
-      MON: 1,
-      TUE: 2,
-      WED: 3,
-      THU: 4,
-      FRI: 5,
-      SAT: 6,
-    };
-    const targetDays = new Set(
-      (repeatDays || "")
-        .split(",")
-        .map((s) => s.trim().toUpperCase())
-        .map((s) => dayMap[s])
-        .filter((n) => n !== undefined)
-    );
-
-    if (targetDays.size === 0 || targetDays.size === 7) {
-      return startCandidate.getTime();
+  for (let i = 0; i <= 366; i++) {
+    if (isDateMatchingRecurrence(candidate, repeatType, repeatDays, repeatDates)) {
+      return candidate.getTime();
     }
-
-    let searchCal = new Date(startCandidate);
-    for (let i = 0; i <= 14; i++) {
-      if (targetDays.has(searchCal.getDay())) {
-        return searchCal.getTime();
-      }
-      searchCal = addDays(searchCal, 1);
-    }
-    return startCandidate.getTime();
+    candidate = addDays(candidate, 1);
   }
 
-  return startCandidate.getTime();
+  return null;
 }
 
 export function formatRemainingTime(
@@ -333,71 +395,71 @@ export function calculateNextRepeatDueDate(
   currentDueDateStr?: string | null,
   repeatType?: RepeatType,
   repeatDays?: string | null,
-  repeatDates?: string | null
+  repeatDates?: string | null,
+  dueTime?: string | null
 ): { nextDueDate: string; nextDueDateMillis: number } | null {
   if (!repeatType || repeatType === "NONE") return null;
 
   const baseMillis = currentDueDateMillis || parseDueDateMillis(currentDueDateStr);
-  let cal = new Date(baseMillis);
 
-  const todayStart = startOfDay(new Date());
-  if (isBefore(cal, todayStart)) {
-    cal = new Date(todayStart);
-  }
-
-  const upperType = repeatType.toUpperCase();
-
-  if (upperType === "EVERYDAY" || upperType === "DAILY") {
-    cal = addDays(cal, 1);
-    const ms = cal.getTime();
-    return { nextDueDate: format(cal, "MMM d"), nextDueDateMillis: ms };
-  }
-
-  if (upperType === "DAYS") {
-    const dayMap: Record<string, number> = {
-      SUN: 0,
-      MON: 1,
-      TUE: 2,
-      WED: 3,
-      THU: 4,
-      FRI: 5,
-      SAT: 6,
-    };
-
-    const targetDays = new Set(
-      (repeatDays || "")
-        .split(",")
-        .map((s) => s.trim().toUpperCase())
-        .map((s) => dayMap[s])
-        .filter((n) => n !== undefined)
-    );
-
-    if (targetDays.size === 0 || targetDays.size === 7) {
-      cal = addDays(cal, 1);
-      const ms = cal.getTime();
-      return { nextDueDate: format(cal, "MMM d"), nextDueDateMillis: ms };
+  let targetHour = 9;
+  let targetMinute = 0;
+  if (dueTime && dueTime.trim().length > 0) {
+    const cleanTime = dueTime.trim();
+    const formats = ["hh:mm a", "h:mm a", "HH:mm", "H:mm"];
+    let parsed = false;
+    for (const fmt of formats) {
+      try {
+        const timeDate = parse(cleanTime, fmt, new Date());
+        if (isValid(timeDate)) {
+          targetHour = timeDate.getHours();
+          targetMinute = timeDate.getMinutes();
+          parsed = true;
+          break;
+        }
+      } catch {}
     }
-
-    for (let i = 1; i <= 14; i++) {
-      cal = addDays(cal, 1);
-      if (targetDays.has(cal.getDay())) {
-        const ms = cal.getTime();
-        return { nextDueDate: format(cal, "MMM d"), nextDueDateMillis: ms };
+    if (!parsed) {
+      const upper = cleanTime.toUpperCase();
+      const isPM = upper.includes("PM");
+      const isAM = upper.includes("AM");
+      const digitsOnly = cleanTime.replace(/[^0-9:]/g, "");
+      const parts = digitsOnly.split(":");
+      if (parts.length >= 2) {
+        let h = parseInt(parts[0], 10) || 9;
+        const m = parseInt(parts[1], 10) || 0;
+        if (isPM && h < 12) h += 12;
+        else if (isAM && h === 12) h = 0;
+        targetHour = h;
+        targetMinute = m;
       }
     }
-
-    cal = addDays(cal, 1);
-    return { nextDueDate: format(cal, "MMM d"), nextDueDateMillis: cal.getTime() };
   }
 
-  if (upperType === "MONTHLY_DATES" || upperType === "BOTH_MONTHLY") {
-    cal = addMonths(cal, 1);
-    const ms = cal.getTime();
-    return { nextDueDate: format(cal, "MMM d"), nextDueDateMillis: ms };
+  let candidate = new Date(baseMillis);
+  candidate.setHours(targetHour, targetMinute, 0, 0);
+
+  const now = Date.now();
+  if (candidate.getTime() <= now) {
+    candidate = new Date(now);
+    candidate.setHours(targetHour, targetMinute, 0, 0);
+    if (candidate.getTime() <= now) {
+      candidate = addDays(candidate, 1);
+    }
+  } else {
+    candidate = addDays(candidate, 1);
   }
 
-  cal = addDays(cal, 1);
-  return { nextDueDate: format(cal, "MMM d"), nextDueDateMillis: cal.getTime() };
+  for (let i = 0; i <= 366; i++) {
+    if (isDateMatchingRecurrence(candidate, repeatType, repeatDays, repeatDates)) {
+      const dayStart = startOfDay(candidate).getTime();
+      return { nextDueDate: format(candidate, "MMM d"), nextDueDateMillis: dayStart };
+    }
+    candidate = addDays(candidate, 1);
+  }
+
+  const fallback = addDays(new Date(baseMillis), 1);
+  return { nextDueDate: format(fallback, "MMM d"), nextDueDateMillis: startOfDay(fallback).getTime() };
 }
 
 export function isTaskSnoozed(task: Task, now = Date.now()): boolean {
@@ -460,6 +522,24 @@ export function isTaskUpcoming(task: Task, now = Date.now()): boolean {
   if (isTaskToday(task, now)) return false;
   if (isTaskTomorrow(task, now)) return false;
   return true;
+}
+
+export function determineTaskSection(
+  dueDateStr: string,
+  dueDateMillis?: number | null,
+  dueTime?: string | null,
+  now = Date.now()
+): "OVERDUE" | "TODAY" | "UPCOMING" | "COMPLETED" {
+  const todayStart = startOfDay(new Date(now)).getTime();
+  const dateMillis = dueDateMillis || parseDueDateMillis(dueDateStr, now);
+  if (dateMillis < todayStart) {
+    return "OVERDUE";
+  }
+  const todayEnd = todayStart + 86400000 - 1;
+  if (dateMillis <= todayEnd || dueDateStr.toLowerCase().includes("today")) {
+    return "TODAY";
+  }
+  return "UPCOMING";
 }
 
 export function categorizeTask(task: Task, now = Date.now()): TaskSection {
