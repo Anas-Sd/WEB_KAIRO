@@ -8,6 +8,8 @@ import {
   calculateNextRepeatDueDate,
   categorizeTask,
   determineTaskSection,
+  isDateMatchingRecurrence,
+  calculateTriggerMillis,
 } from "@/lib/dateUtils";
 
 interface FilterCriteria {
@@ -788,14 +790,15 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
     const now = Date.now();
     const todayStart = startOfDay(new Date()).getTime();
 
-    const overdueRecurring = all.filter(
-      (t) =>
-        !t.isCompleted &&
-        !t.id.startsWith("snapshot_") &&
-        t.repeatType &&
-        t.repeatType !== "NONE" &&
-        (t.dueDateMillis || parseDueDateMillis(t.dueDate)) < todayStart
-    );
+    const overdueRecurring = all.filter((t) => {
+      if (t.isCompleted || t.id.startsWith("snapshot_") || !t.repeatType || t.repeatType === "NONE") {
+        return false;
+      }
+      const dateMillis = t.dueDateMillis || parseDueDateMillis(t.dueDate);
+      const isDayMatching = isDateMatchingRecurrence(new Date(dateMillis), t.repeatType, t.repeatDays, t.repeatDates);
+      const trigger = calculateTriggerMillis(t.dueDate, t.dueTime, t.dueDateMillis);
+      return dateMillis < todayStart || (trigger !== null && trigger < now) || !isDayMatching;
+    });
 
     if (overdueRecurring.length === 0) return;
 
@@ -804,23 +807,28 @@ export const useTaskStore = create<TaskStoreState>((set, get) => ({
 
     for (const target of overdueRecurring) {
       const pastMillis = target.dueDateMillis || parseDueDateMillis(target.dueDate);
+      const isDayMatching = isDateMatchingRecurrence(new Date(pastMillis), target.repeatType, target.repeatDays, target.repeatDates);
+      const pastTrigger = calculateTriggerMillis(target.dueDate, target.dueTime, target.dueDateMillis);
       const snapshotId = `snapshot_${target.id}_${pastMillis}`;
 
-      if (!all.some((t) => t.id === snapshotId) && !newSnapshots.some((t) => t.id === snapshotId)) {
-        const missedSnapshot: Task = {
-          ...target,
-          id: snapshotId,
-          isCompleted: false,
-          completedAt: null,
-          dueDate: target.dueDate.toLowerCase().includes("snoozed")
-            ? formatDisplayDate(null, pastMillis)
-            : target.dueDate,
-          section: "COMPLETED",
-          repeatType: null,
-          notes: target.notes ? `[MISSED] ${target.notes}` : "[MISSED]",
-          updatedAt: now,
-        };
-        newSnapshots.push(missedSnapshot);
+      // Only snapshot as MISSED if it was a real scheduled day that elapsed
+      if (isDayMatching && (pastMillis < todayStart || (pastTrigger !== null && pastTrigger < now))) {
+        if (!all.some((t) => t.id === snapshotId) && !newSnapshots.some((t) => t.id === snapshotId)) {
+          const missedSnapshot: Task = {
+            ...target,
+            id: snapshotId,
+            isCompleted: false,
+            completedAt: null,
+            dueDate: target.dueDate.toLowerCase().includes("snoozed")
+              ? formatDisplayDate(null, pastMillis)
+              : target.dueDate,
+            section: "COMPLETED",
+            repeatType: null,
+            notes: target.notes ? `[MISSED] ${target.notes}` : "[MISSED]",
+            updatedAt: now,
+          };
+          newSnapshots.push(missedSnapshot);
+        }
       }
 
       // Advance active target task to its NEXT recurring occurrence (NOT today!)

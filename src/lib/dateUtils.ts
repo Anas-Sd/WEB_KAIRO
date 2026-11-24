@@ -250,29 +250,32 @@ export function isDateMatchingRecurrence(
 
   let datesMatch = false;
   if (hasDates && repeatDates && repeatDates.trim().length > 0) {
-    const isMonthly = type.includes("MONTHLY");
     const rawDateList = repeatDates.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    const currentDayOfMonth = date.getDate();
+    const currentMonth = date.getMonth();
+    const currentYear = date.getFullYear();
 
-    if (isMonthly) {
-      const currentDayOfMonth = date.getDate();
-      for (const dateStr of rawDateList) {
-        const dayNum = parseInt(dateStr.replace(/[^0-9]/g, ""), 10);
+    const formats = ["MMM d, yyyy", "MMM dd, yyyy", "MMM d", "MMM dd", "yyyy-MM-dd", "dd/MM/yyyy"];
+
+    for (const dateStr of rawDateList) {
+      // If purely digits, match against day of month
+      if (/^\d+$/.test(dateStr)) {
+        const dayNum = parseInt(dateStr, 10);
         if (!isNaN(dayNum) && dayNum === currentDayOfMonth) {
           datesMatch = true;
           break;
         }
-      }
-    } else {
-      const formats = ["MMM d", "MMM dd", "yyyy-MM-dd"];
-      const currentMonth = date.getMonth();
-      const currentDay = date.getDate();
-
-      for (const dateStr of rawDateList) {
+      } else {
+        // Explicit month + day
         for (const fmt of formats) {
           try {
             const parsed = parse(dateStr, fmt, new Date());
             if (isValid(parsed)) {
-              if (parsed.getMonth() === currentMonth && parsed.getDate() === currentDay) {
+              const hasYear = /\b20\d\d\b/.test(dateStr);
+              const yearMatch = !hasYear || parsed.getFullYear() === currentYear;
+              const sameMonth = parsed.getMonth() === currentMonth;
+              const sameDay = parsed.getDate() === currentDayOfMonth;
+              if (yearMatch && sameMonth && sameDay) {
                 datesMatch = true;
                 break;
               }
